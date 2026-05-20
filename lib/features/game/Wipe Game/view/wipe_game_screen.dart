@@ -35,6 +35,17 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = ref.watch(wipeGameProvider);
+    ref.listen<bool>(
+      wipeGameProvider.select((provider) => provider.isCompleted),
+      (previous, next) {
+        if (previous == true || !next) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _showCompletionDialog();
+        });
+      },
+    );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _updateTrackingArea(provider);
@@ -59,7 +70,8 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
                   Expanded(
                     child: WipeGridWidget(
                       key: _gridKey,
-                      imagePath: 'assets/Images/schedule_1.png',
+                      imagePath: provider.currentImagePath,
+                      resetToken: provider.boardVersion,
                       leftHand: provider.leftCursor,
                       rightHand: provider.rightCursor,
                       coordinateSpaceKey: _gameStackKey,
@@ -112,6 +124,57 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
       gridTop: gridTopLeft.dy,
       gridBottom: gridBottomRight.dy,
       horizontalPadding: gridTopLeft.dx,
+    );
+  }
+
+  void _showCompletionDialog() {
+    final provider = ref.read(wipeGameProvider);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text(
+          'Great job!',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+          ),
+        ),
+        content: Text(
+          'You completed the wipe game.\nScore : ${provider.score}',
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 18,
+            height: 1.6,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(wipeGameProvider).restartGame();
+            },
+            child: const Text('Play Again'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9800),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(wipeGameProvider).startNextImage();
+            },
+            child: const Text('Next Image'),
+          ),
+        ],
+      ),
     );
   }
 }

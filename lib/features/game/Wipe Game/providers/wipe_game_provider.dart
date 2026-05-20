@@ -22,16 +22,29 @@ class WipeGameProvider extends ChangeNotifier {
 
   final Random random = Random();
 
+  static const List<String> wipeImages = [
+    'assets/Images/schedule_1.png',
+    'assets/Images/schedule_2.png',
+  ];
+
   List<WipeCellModel> cells = [];
 
   int score = 0;
+  int imageIndex = 0;
+  int boardVersion = 0;
 
   bool isInitialized = false;
+  bool isCompleted = false;
   bool _notifyQueued = false;
 
   static const double _cursorNotifyEpsilon = 0.75;
 
+  String get currentImagePath => wipeImages[imageIndex % wipeImages.length];
+
   Future<void> initialize() async {
+    score = 0;
+    isCompleted = false;
+    boardVersion++;
     _generateGrid();
 
     await cameraServices.initialize();
@@ -81,6 +94,7 @@ class WipeGameProvider extends ChangeNotifier {
     if (!cells[index].isWiped) {
       cells[index].isWiped = true;
       score += 5;
+      isCompleted = cells.every((cell) => cell.isWiped);
       return true;
     }
 
@@ -107,11 +121,19 @@ class WipeGameProvider extends ChangeNotifier {
 
   void restartGame() {
     score = 0;
+    isCompleted = false;
+    boardVersion++;
     _generateGrid();
     notifyListeners();
   }
 
+  void startNextImage() {
+    imageIndex = (imageIndex + 1) % wipeImages.length;
+    restartGame();
+  }
+
   Future<void> disposeCamera() async {
+    cameraServices.onCursorsMove = null;
     await cameraServices.dispose();
   }
 }
