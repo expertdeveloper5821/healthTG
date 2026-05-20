@@ -1,5 +1,6 @@
 
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
+import 'package:demo_p/features/game/hold_tap_game/view/hold_tap_game_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
 import 'package:flutter/material.dart';
 
@@ -22,10 +23,10 @@ class GameScreen extends StatelessWidget {
         "screen": const WipeGameScreen(),
       },
       {
-        "title": "Puzzle Game",
-        "icon": Icons.extension,
-        "color": Colors.purple,
-        "screen": const ComingSoonScreen(),
+        "title": "Hold Tap",
+        "icon": Icons.touch_app,
+        "color": Colors.cyan,
+        "screen": const HoldTapGameScreen(),
       },
       {
         "title": "Ball Game",
