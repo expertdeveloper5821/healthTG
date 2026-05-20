@@ -46,12 +46,13 @@ class CameraServices {
   Offset leftCursorPosition = Offset.zero;
   Offset rightCursorPosition = Offset.zero;
 
-  // Pose-derived hands exposed for camera preview painter.
   List<TrackedHand> hands = [];
   TrackedHand? _trackedLeftHand;
   TrackedHand? _trackedRightHand;
   DateTime? _lastLeftHandSeenAt;
   DateTime? _lastRightHandSeenAt;
+  DateTime? _lastProcessedFrameAt;
+  DateTime? _lastCursorFrameAt;
   int _emptyDetectionFrames = 0;
   int _poseDetectionFrame = 0;
 
@@ -61,19 +62,22 @@ class CameraServices {
 
   // ── Game-area constants (must match MemoryGameScreen layout) ─────────────
   double _screenWidth = 390;
-  static const double _hPadding = 16;
-  static const double _gridTop = 340;
-  static const double _gridBottom = 760;
+  double _hPadding = 16;
+  double _gridTop = 340;
+  double _gridBottom = 760;
 
   // ── Tuning constants ─────────────────────────────────────────────────────
-  static const double _smoothingFactor = 0.18; // higher = more responsive
-  static const double _landmarkSmoothingFactor = 0.14;
-  static const double _landmarkDeadzone = 0.006;
-  static const double _deadzone = 11.0; // pixels - ignore pose jitter
+  static const double _smoothingFactor = 0.24; // higher = more responsive
+  static const double _fastSmoothingFactor = 0.48;
+  static const double _landmarkSmoothingFactor = 0.18;
+  static const double _landmarkDeadzone = 0.0045;
+  static const double _deadzone = 5.5; // pixels - ignore pose jitter
   static const double _pinchThresholdSq = 0.0035; // landmark space
   static const double _minLandmarkLikelihood = 0.55;
   static const Duration _handVisibilityGrace = Duration(milliseconds: 520);
   static const int _emptyFramesBeforeClear = 4;
+  static const Duration _targetFrameInterval = Duration(milliseconds: 33);
+  static const Duration _cursorFrameInterval = Duration(milliseconds: 16);
 
   // ── Init ─────────────────────────────────────────────────────────────────
   Future<void> initialize() async {
@@ -127,9 +131,30 @@ class CameraServices {
     if (width > 0) _screenWidth = width;
   }
 
+  void updateGameTrackingArea({
+    required double screenWidth,
+    required double gridTop,
+    required double gridBottom,
+    double horizontalPadding = 16,
+  }) {
+    if (screenWidth > 0) _screenWidth = screenWidth;
+    if (gridBottom > gridTop) {
+      _gridTop = gridTop;
+      _gridBottom = gridBottom;
+    }
+    if (horizontalPadding >= 0) _hPadding = horizontalPadding;
+  }
+
   Future<void> _processCameraImage(CameraImage image) async {
     if (isDetecting || !isInitialized) return;
     if (controller == null || !controller!.value.isStreamingImages) return;
+
+    final now = DateTime.now();
+    if (_lastProcessedFrameAt != null &&
+        now.difference(_lastProcessedFrameAt!) < _targetFrameInterval) {
+      return;
+    }
+    _lastProcessedFrameAt = now;
 
     isDetecting = true;
 
@@ -646,6 +671,13 @@ class CameraServices {
       _smoothedRight = Offset.zero;
     }
 
+    final now = DateTime.now();
+    if (_lastCursorFrameAt != null &&
+        now.difference(_lastCursorFrameAt!) < _cursorFrameInterval) {
+      return;
+    }
+
+    _lastCursorFrameAt = now;
     onCursorsMove?.call(leftCursorPosition, rightCursorPosition);
   }
 
@@ -687,10 +719,10 @@ class CameraServices {
 
     if (distanceSq < _deadzone * _deadzone) return current;
 
-    return Offset(
-      current.dx + dx * _smoothingFactor,
-      current.dy + dy * _smoothingFactor,
-    );
+    final distance = Offset(dx, dy).distance;
+    final factor = distance > 120 ? _fastSmoothingFactor : _smoothingFactor;
+
+    return Offset.lerp(current, target, factor) ?? target;
   }
 
   // ── Pinch detection ──────────────────────────────────────────────────────
