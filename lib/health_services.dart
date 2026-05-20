@@ -39,7 +39,7 @@ class HealthService {
       await _health.configure();
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // READ + WRITE dono maango taaki Health Connect saare permissions dikhaye
+  
       final permissions = [
         HealthDataAccess.READ_WRITE, // STEPS
         HealthDataAccess.READ_WRITE, // HEART_RATE
@@ -108,9 +108,9 @@ class HealthService {
       try {
         int? steps = await _health.getTotalStepsInInterval(today, now);
         result['steps'] = steps ?? 0;
-        print("👟 Steps: ${result['steps']}");
+        print(" Steps: ${result['steps']}");
       } catch (e) {
-        print("❌ Steps error: $e");
+        print(" Steps error: $e");
       }
 
       // BAAKI SAARA DATA
@@ -138,7 +138,7 @@ class HealthService {
         );
 
         data = _health.removeDuplicates(data);
-        print("📦 Total data points: ${data.length}");
+        print(" Total data points: ${data.length}");
 
         double heartRateSum = 0, heartRateCount = 0;
         double activeCalSum = 0;
@@ -242,13 +242,13 @@ class HealthService {
         result['respiratoryRate'] =
         respCount > 0 ? respSum / respCount : 0.0;
       } catch (e) {
-        print("❌ Data fetch error: $e");
+        print(" Data fetch error: $e");
       }
     } catch (e) {
-      print("❌ fetchAllData error: $e");
+      print(" fetchAllData error: $e");
     }
 
-    print("📊 Final: $result");
+    print(" Final: $result");
     return result;
   }
 }
