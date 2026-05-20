@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 class WipeGridWidget extends StatefulWidget {
   final String imagePath;
+  final int resetToken;
   final Offset leftHand;
   final Offset rightHand;
   final GlobalKey coordinateSpaceKey;
@@ -11,6 +12,7 @@ class WipeGridWidget extends StatefulWidget {
   const WipeGridWidget({
     super.key,
     required this.imagePath,
+    required this.resetToken,
     required this.leftHand,
     required this.rightHand,
     required this.coordinateSpaceKey,
@@ -53,6 +55,15 @@ class _WipeGridWidgetState extends State<WipeGridWidget> {
       _strokeIdByHand.clear();
       _wipeVersion++;
       _loadOverlayImage();
+    }
+
+    if (oldWidget.resetToken != widget.resetToken) {
+      _wipePoints.clear();
+      _lastPointByHand.clear();
+      _strokeIdByHand.clear();
+      _smoothedLeftHand = Offset.zero;
+      _smoothedRightHand = Offset.zero;
+      _wipeVersion++;
     }
 
     final leftChanged = _appendWipeStroke(
