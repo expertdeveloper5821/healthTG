@@ -3,12 +3,16 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../calibration/game_calibration_service.dart';
 import '../services/camera_services.dart';
 import '../widgets/camera_preview_box.dart';
 import '../widgets/memory_card_widget.dart';
 
 class MemoryGameScreen extends StatefulWidget {
-  const MemoryGameScreen({super.key});
+  final bool isPaused;
+  final GameCalibrationService? safetyMonitor;
+
+  const MemoryGameScreen({super.key, this.isPaused = false, this.safetyMonitor});
 
   @override
   State<MemoryGameScreen> createState() => _MemoryGameScreenState();
@@ -57,6 +61,7 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
   }
 
   Future<void> _initializeCamera() async {
+    _cameraServices.safetyMonitor = widget.safetyMonitor;
     await _cameraServices.initialize();
 
     _cameraServices.onPinch = _handlePinch;
@@ -67,10 +72,22 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
         _leftCursor = leftPos;
         _rightCursor = rightPos;
       });
+      if (widget.isPaused) return;
       _evaluateHover();
     };
 
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant MemoryGameScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isPaused && widget.isPaused) {
+      _resetHover();
+    }
+    if (oldWidget.safetyMonitor != widget.safetyMonitor) {
+      _cameraServices.safetyMonitor = widget.safetyMonitor;
+    }
   }
 
   void _initializeGame() {
@@ -106,7 +123,7 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
   }
 
   void _evaluateHover() {
-    if (!mounted) return;
+    if (!mounted || widget.isPaused) return;
     final leftIdx = _indexFromPosition(_leftCursor);
     final rightIdx = _indexFromPosition(_rightCursor);
     int? candidateIndex;
@@ -185,7 +202,7 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
   }
 
   void _handlePinch(Offset position) {
-    if (_pinchCooldown != null || !mounted) return;
+    if (_pinchCooldown != null || !mounted || widget.isPaused) return;
 
     final idx =
         _indexFromPosition(_leftCursor) ?? _indexFromPosition(_rightCursor);
@@ -199,7 +216,7 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
   }
 
   Future<void> _onCardTap(int index) async {
-    if (_isBusy || !mounted) return;
+    if (_isBusy || !mounted || widget.isPaused) return;
     if (_revealed[index] || _matched[index]) return;
 
     setState(() => _revealed[index] = true);
@@ -343,7 +360,7 @@ class _MemoryGameScreenState extends State<MemoryGameScreen> {
                         hoverProgress: _hoveredIndex == index
                             ? _hoverProgress
                             : 0.0,
-                        onTap: () => _onCardTap(index),
+                        onTap: widget.isPaused ? () {} : () => _onCardTap(index),
                       ),
                     ),
                   ),

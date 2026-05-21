@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:demo_p/features/game/hold_tap_game/model/hold_target_model.dart';
 import 'package:demo_p/features/game/hold_tap_game/services/hold_detection_service.dart';
 import 'package:demo_p/features/game/hold_tap_game/utils/collision_helper.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:demo_p/features/game/services/camera_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -46,6 +47,7 @@ class HoldTapGameProvider extends ChangeNotifier {
   int targetsCleared = 0;
   bool isInitialized = false;
   bool isHolding = false;
+  bool isPaused = false;
   double holdProgress = 0;
 
   Timer? _ticker;
@@ -123,6 +125,15 @@ class HoldTapGameProvider extends ChangeNotifier {
   }
 
   void _tick() {
+    if (isPaused) {
+      if (isHolding || holdProgress > 0) {
+        holdDetectionService.reset();
+        isHolding = false;
+        holdProgress = 0;
+        _scheduleNotify();
+      }
+      return;
+    }
     if (_isResolvingTarget || activeTarget == null) return;
 
     // Hold detection is evaluated on a steady 60fps ticker so progress stays
@@ -177,6 +188,7 @@ class HoldTapGameProvider extends ChangeNotifier {
   }
 
   void _spawnTarget() {
+    if (isPaused) return;
     if (gameArea == Rect.zero || gameArea.width <= 0 || gameArea.height <= 0) {
       return;
     }
@@ -216,6 +228,23 @@ class HoldTapGameProvider extends ChangeNotifier {
     );
   }
 
+  void attachSafetyMonitor(GameCalibrationService? safetyMonitor) {
+    cameraServices.safetyMonitor = safetyMonitor;
+  }
+
+  void setPaused(bool value) {
+    if (isPaused == value) return;
+    isPaused = value;
+    if (isPaused) {
+      holdDetectionService.reset();
+      isHolding = false;
+      holdProgress = 0;
+    } else if (activeTarget == null) {
+      _spawnTarget();
+    }
+    notifyListeners();
+  }
+
   bool _hasCursorChanged(Offset oldPosition, Offset newPosition) {
     if (oldPosition == Offset.zero || newPosition == Offset.zero) {
       return oldPosition != newPosition;
@@ -240,6 +269,7 @@ class HoldTapGameProvider extends ChangeNotifier {
     _spawnTimer?.cancel();
     _spawnTimer = null;
     cameraServices.onCursorsMove = null;
+    cameraServices.safetyMonitor = null;
     await cameraServices.dispose();
     cameraServices.isInitialized = false;
     cameraServices.controller = null;
