@@ -29,7 +29,7 @@ final double hoverProgress;
         decoration: BoxDecoration(
           color: showFront
               ? Colors.white
-              : const Color(0xff2A2A2A),
+              : Colors.transparent,
           borderRadius:
               BorderRadius.circular(20),
           border: Border.all(
@@ -41,6 +41,7 @@ final double hoverProgress;
           boxShadow: [
             BoxShadow(
               color: Colors.black
+                  // ignore: deprecated_member_use
                   .withOpacity(0.2),
               blurRadius: 10,
             ),
@@ -49,15 +50,24 @@ final double hoverProgress;
        child: Stack(
   alignment: Alignment.center,
   children: [
-    Text(
-      showFront ? emoji : '?',
-      style: TextStyle(
-        fontSize:
-            showFront ? 42 : 34,
-        fontWeight:
-            FontWeight.bold,
+    if (!showFront)
+      ClipRRect(
+        borderRadius: BorderRadius.circular(17),
+        child: Image.asset(
+          'assets/Images/backgound.png',
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+        ),
       ),
-    ),
+    if (showFront)
+      Text(
+        emoji,
+        style: const TextStyle(
+          fontSize: 42,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
 
     if (hoverProgress > 0 &&
         hoverProgress < 1)
