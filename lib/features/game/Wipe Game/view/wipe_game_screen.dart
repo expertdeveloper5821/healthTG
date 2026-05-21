@@ -1,4 +1,5 @@
 import 'package:demo_p/features/game/widgets/camera_preview_box.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +8,10 @@ import '../widgets/wipe_cursor_widget.dart';
 import '../widgets/wipe_grid_widget.dart';
 
 class WipeGameScreen extends ConsumerStatefulWidget {
-  const WipeGameScreen({super.key});
+  final bool isPaused;
+  final GameCalibrationService? safetyMonitor;
+
+  const WipeGameScreen({super.key, this.isPaused = false, this.safetyMonitor});
 
   @override
   ConsumerState<WipeGameScreen> createState() => _WipeGameScreenState();
@@ -22,8 +26,21 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
     super.initState();
 
     Future.microtask(() {
-      ref.read(wipeGameProvider).initialize();
+      ref.read(wipeGameProvider)
+        ..attachSafetyMonitor(widget.safetyMonitor)
+        ..initialize();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant WipeGameScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPaused != widget.isPaused) {
+      ref.read(wipeGameProvider).setPaused(widget.isPaused);
+    }
+    if (oldWidget.safetyMonitor != widget.safetyMonitor) {
+      ref.read(wipeGameProvider).attachSafetyMonitor(widget.safetyMonitor);
+    }
   }
 
   @override
@@ -35,6 +52,11 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = ref.watch(wipeGameProvider);
+    if (provider.isPaused != widget.isPaused) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(wipeGameProvider).setPaused(widget.isPaused);
+      });
+    }
     ref.listen<bool>(
       wipeGameProvider.select((provider) => provider.isCompleted),
       (previous, next) {

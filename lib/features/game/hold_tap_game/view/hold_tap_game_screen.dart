@@ -3,12 +3,16 @@ import 'package:demo_p/features/game/hold_tap_game/widgets/click_effect_widget.d
 import 'package:demo_p/features/game/hold_tap_game/widgets/game_background_widget.dart';
 import 'package:demo_p/features/game/hold_tap_game/widgets/hold_cursor_widget.dart';
 import 'package:demo_p/features/game/hold_tap_game/widgets/hold_target_widget.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:demo_p/features/game/widgets/camera_preview_box.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class HoldTapGameScreen extends ConsumerStatefulWidget {
-  const HoldTapGameScreen({super.key});
+  final bool isPaused;
+  final GameCalibrationService? safetyMonitor;
+
+  const HoldTapGameScreen({super.key, this.isPaused = false, this.safetyMonitor});
 
   @override
   ConsumerState<HoldTapGameScreen> createState() => _HoldTapGameScreenState();
@@ -22,8 +26,21 @@ class _HoldTapGameScreenState extends ConsumerState<HoldTapGameScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      ref.read(holdTapGameProvider).initialize();
+      ref.read(holdTapGameProvider)
+        ..attachSafetyMonitor(widget.safetyMonitor)
+        ..initialize();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant HoldTapGameScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPaused != widget.isPaused) {
+      ref.read(holdTapGameProvider).setPaused(widget.isPaused);
+    }
+    if (oldWidget.safetyMonitor != widget.safetyMonitor) {
+      ref.read(holdTapGameProvider).attachSafetyMonitor(widget.safetyMonitor);
+    }
   }
 
   @override
@@ -35,6 +52,11 @@ class _HoldTapGameScreenState extends ConsumerState<HoldTapGameScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = ref.watch(holdTapGameProvider);
+    if (provider.isPaused != widget.isPaused) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(holdTapGameProvider).setPaused(widget.isPaused);
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _updateTrackingArea(provider);

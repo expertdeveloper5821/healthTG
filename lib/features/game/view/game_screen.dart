@@ -1,5 +1,8 @@
 
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_screen.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
+import 'package:demo_p/features/game/calibration/game_types.dart';
 import 'package:demo_p/features/game/hold_tap_game/view/hold_tap_game_screen.dart';
 import 'package:demo_p/features/game/traffic_jam/view/rusht_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
@@ -15,61 +18,81 @@ class GameScreen extends StatelessWidget {
         "title": "Memory Game",
         "icon": Icons.psychology,
         "color": Colors.blue,
-        "screen": const MemoryGameScreen(),
+        "usesGameCamera": true,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => MemoryGameScreen(
+          isPaused: isPaused,
+          safetyMonitor: safetyMonitor,
+        ),
       },
       {
         "title": "Wipe Game",
         "icon": Icons.cleaning_services,
         "color": Colors.orange,
-        "screen": const WipeGameScreen(),
+        "usesGameCamera": true,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => WipeGameScreen(
+          isPaused: isPaused,
+          safetyMonitor: safetyMonitor,
+        ),
       },
       {
         "title": "Hold Tap",
         "icon": Icons.touch_app,
         "color": Colors.cyan,
-        "screen": const HoldTapGameScreen(),
+        "usesGameCamera": true,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => HoldTapGameScreen(
+          isPaused: isPaused,
+          safetyMonitor: safetyMonitor,
+        ),
       },
       {
         "title": "Rush",
         "icon": Icons.traffic,
         "color": Colors.red,
-        "screen": const RushScreen(),
+        "requiresCalibration": false,
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => RushScreen(isPaused: isPaused),
       },
       {
         "title": "Color Match",
         "icon": Icons.color_lens,
         "color": Colors.green,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
       {
         "title": "Snake Game",
         "icon": Icons.gamepad,
         "color": Colors.teal,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
       {
         "title": "Typing Game",
         "icon": Icons.keyboard,
         "color": Colors.indigo,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
       {
         "title": "Target Game",
         "icon": Icons.gps_fixed,
         "color": Colors.pink,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
       {
         "title": "Fruit Cut",
         "icon": Icons.apple,
         "color": Colors.deepOrange,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
       {
         "title": "Reaction Game",
         "icon": Icons.flash_on,
         "color": Colors.amber,
-        "screen": const ComingSoonScreen(),
+        "usesGameCamera": false,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
       },
     ];
 
@@ -100,13 +123,22 @@ class GameScreen extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final game = games[index];
+            final gameBuilder = game["builder"] as GameBuilder;
 
             return GestureDetector(
               onTap: () {
+                final requiresCalibration =
+                    game["requiresCalibration"] as bool? ?? true;
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => game["screen"],
+                    builder: (_) => requiresCalibration
+                        ? GameCalibrationScreen(
+                            gameTitle: game["title"] as String,
+                            gameBuilder: gameBuilder,
+                            usesGameCamera: game["usesGameCamera"] as bool,
+                          )
+                        : gameBuilder(false, null),
                   ),
                 );
               },
