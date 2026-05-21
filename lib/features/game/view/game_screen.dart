@@ -1,6 +1,7 @@
 
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
 import 'package:demo_p/features/game/hold_tap_game/view/hold_tap_game_screen.dart';
+import 'package:demo_p/features/game/traffic_jam/view/rusht_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
 import 'package:flutter/material.dart';
 
@@ -29,10 +30,10 @@ class GameScreen extends StatelessWidget {
         "screen": const HoldTapGameScreen(),
       },
       {
-        "title": "Ball Game",
-        "icon": Icons.sports_basketball,
+        "title": "Rush",
+        "icon": Icons.traffic,
         "color": Colors.red,
-        "screen": const ComingSoonScreen(),
+        "screen": const RushScreen(),
       },
       {
         "title": "Color Match",
