@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
@@ -19,6 +21,7 @@ class TrackedHand {
   final bool hasThumb;
   final bool hasPinky;
   final int detectedFrame;
+  final double confidence;
 
   const TrackedHand({
     required this.landmarks,
@@ -26,7 +29,20 @@ class TrackedHand {
     required this.hasThumb,
     required this.hasPinky,
     this.detectedFrame = 0,
+    this.confidence = 1,
   });
+
+  TrackedLandmark get wrist => landmarks[0];
+  TrackedLandmark get indexTip => landmarks[8];
+
+  Offset get trackingCenter {
+    final palm = Offset(
+      (landmarks[0].x + landmarks[5].x + landmarks[9].x + landmarks[13].x) / 4,
+      (landmarks[0].y + landmarks[5].y + landmarks[9].y + landmarks[13].y) / 4,
+    );
+    final fingertip = Offset(indexTip.x, indexTip.y);
+    return Offset.lerp(palm, fingertip, 0.72) ?? fingertip;
+  }
 }
 
 class CameraServices {
@@ -41,6 +57,8 @@ class CameraServices {
   // ── Smoothed internal state ──────────────────────────────────────────────
   Offset _smoothedLeft = Offset.zero;
   Offset _smoothedRight = Offset.zero;
+  Offset _leftVelocity = Offset.zero;
+  Offset _rightVelocity = Offset.zero;
 
   // Public positions exposed to UI
   Offset leftCursorPosition = Offset.zero;
@@ -53,12 +71,15 @@ class CameraServices {
   DateTime? _lastRightHandSeenAt;
   DateTime? _lastProcessedFrameAt;
   DateTime? _lastCursorFrameAt;
+  DateTime? _lastCursorUpdateAt;
   int _emptyDetectionFrames = 0;
   int _poseDetectionFrame = 0;
+  int _handDetectionFrame = 0;
 
   // ── Callbacks ────────────────────────────────────────────────────────────
   Function(Offset leftPos, Offset rightPos)? onCursorsMove;
   Function(Offset position)? onPinch;
+  GameCalibrationService? safetyMonitor;
 
   // ── Game-area constants (must match MemoryGameScreen layout) ─────────────
   double _screenWidth = 390;
@@ -67,17 +88,19 @@ class CameraServices {
   double _gridBottom = 760;
 
   // ── Tuning constants ─────────────────────────────────────────────────────
-  static const double _smoothingFactor = 0.24; // higher = more responsive
-  static const double _fastSmoothingFactor = 0.48;
-  static const double _landmarkSmoothingFactor = 0.18;
-  static const double _landmarkDeadzone = 0.0045;
-  static const double _deadzone = 5.5; // pixels - ignore pose jitter
-  static const double _pinchThresholdSq = 0.0035; // landmark space
-  static const double _minLandmarkLikelihood = 0.55;
-  static const Duration _handVisibilityGrace = Duration(milliseconds: 520);
-  static const int _emptyFramesBeforeClear = 4;
-  static const Duration _targetFrameInterval = Duration(milliseconds: 33);
-  static const Duration _cursorFrameInterval = Duration(milliseconds: 16);
+  static const double _smoothingFactor = 0.30; // higher = more responsive
+  static const double _fastSmoothingFactor = 0.64;
+  static const double _landmarkSmoothingFactor = 0.24;
+  static const double _landmarkFastSmoothingFactor = 0.56;
+  static const double _landmarkDeadzone = 0.0024;
+  static const double _deadzone = 2.2; // pixels - ignore pose jitter
+  static const double _pinchThresholdSq = 0.0032; // landmark space
+  static const double _minLandmarkLikelihood = 0.60;
+  static const double _maxCursorPredictionMs = 34;
+  static const Duration _handVisibilityGrace = Duration(milliseconds: 680);
+  static const int _emptyFramesBeforeClear = 6;
+  static const Duration _targetFrameInterval = Duration(milliseconds: 25);
+  static const Duration _cursorFrameInterval = Duration(milliseconds: 12);
 
   // ── Init ─────────────────────────────────────────────────────────────────
   Future<void> initialize() async {
@@ -103,14 +126,14 @@ class CameraServices {
       try {
         _handLandmarker = hand_landmarker.HandLandmarkerPlugin.create(
           numHands: 2,
-          minHandDetectionConfidence: 0.55,
+          minHandDetectionConfidence: 0.64,
           delegate: hand_landmarker.HandLandmarkerDelegate.gpu,
         );
       } catch (e) {
         debugPrint('GPU hand landmarker init failed, using CPU: $e');
         _handLandmarker = hand_landmarker.HandLandmarkerPlugin.create(
           numHands: 2,
-          minHandDetectionConfidence: 0.55,
+          minHandDetectionConfidence: 0.64,
           delegate: hand_landmarker.HandLandmarkerDelegate.cpu,
         );
       }
@@ -159,6 +182,12 @@ class CameraServices {
     isDetecting = true;
 
     try {
+      final externalSafety = safetyMonitor;
+      final camera = controller?.description;
+      if (externalSafety != null && camera != null) {
+        unawaited(externalSafety.processExternalCameraImage(image, camera));
+      }
+
       if (_handLandmarker != null) {
         final detectedHands = _handLandmarker!.detect(
           image,
@@ -253,48 +282,174 @@ class CameraServices {
   ) {
     if (detectedHands.isEmpty) return [];
 
-    final handsWithCenter =
-        detectedHands.where((hand) => hand.landmarks.length >= 21).map((hand) {
-          final landmarks = hand.landmarks
-              .map((landmark) {
-                return TrackedLandmark(
-                  landmark.x.clamp(0.0, 1.0).toDouble(),
-                  landmark.y.clamp(0.0, 1.0).toDouble(),
-                  landmark.z,
-                );
-              })
-              .toList(growable: false);
-          return _DetectedHandCandidate(landmarks: landmarks);
-        }).toList()..sort((a, b) => a.centerX.compareTo(b.centerX));
+    _handDetectionFrame++;
+    final candidates =
+        detectedHands
+            .where((hand) => hand.landmarks.length >= 21)
+            .map((hand) {
+              final landmarks = hand.landmarks
+                  .map((landmark) {
+                    return TrackedLandmark(
+                      landmark.x.clamp(0.0, 1.0).toDouble(),
+                      landmark.y.clamp(0.0, 1.0).toDouble(),
+                      landmark.z,
+                    );
+                  })
+                  .toList(growable: false);
+              return _DetectedHandCandidate(
+                landmarks: landmarks,
+                confidence: _mediaPipeHandConfidence(landmarks),
+              );
+            })
+            .where((candidate) => candidate.confidence >= 0.52)
+            .toList()
+          ..sort((a, b) => b.confidence.compareTo(a.confidence));
 
-    if (handsWithCenter.isEmpty) return [];
+    if (candidates.isEmpty) return [];
+    if (candidates.length > 2) candidates.removeRange(2, candidates.length);
 
-    if (handsWithCenter.length == 1) {
-      final candidate = handsWithCenter.first;
+    final assigned = _assignHandCandidates(candidates);
+    return assigned
+        .map(
+          (entry) => TrackedHand(
+            landmarks: entry.candidate.landmarks,
+            isLeft: entry.isLeft,
+            hasThumb: true,
+            hasPinky: true,
+            detectedFrame: _handDetectionFrame,
+            confidence: entry.candidate.confidence,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<_AssignedHandCandidate> _assignHandCandidates(
+    List<_DetectedHandCandidate> candidates,
+  ) {
+    if (candidates.length == 1) {
+      final candidate = candidates.first;
+      final previousLeft = _trackedLeftHand;
+      final previousRight = _trackedRightHand;
+
+      if (previousLeft != null || previousRight != null) {
+        final leftDistance = previousLeft == null
+            ? double.infinity
+            : _candidateDistance(candidate, previousLeft);
+        final rightDistance = previousRight == null
+            ? double.infinity
+            : _candidateDistance(candidate, previousRight);
+        if ((leftDistance - rightDistance).abs() > 0.018) {
+          return [
+            _AssignedHandCandidate(
+              candidate: candidate,
+              isLeft: leftDistance < rightDistance,
+            ),
+          ];
+        }
+      }
+
       return [
-        TrackedHand(
-          landmarks: candidate.landmarks,
-          isLeft: true,
-          hasThumb: true,
-          hasPinky: true,
+        _AssignedHandCandidate(
+          candidate: candidate,
+          isLeft: candidate.centerX < 0.5,
         ),
       ];
     }
 
+    final first = candidates[0];
+    final second = candidates[1];
+    final previousLeft = _trackedLeftHand;
+    final previousRight = _trackedRightHand;
+
+    if (previousLeft != null && previousRight != null) {
+      final directCost =
+          _candidateDistance(first, previousLeft) +
+          _candidateDistance(second, previousRight);
+      final swappedCost =
+          _candidateDistance(first, previousRight) +
+          _candidateDistance(second, previousLeft);
+      if ((directCost - swappedCost).abs() > 0.015) {
+        return [
+          _AssignedHandCandidate(
+            candidate: first,
+            isLeft: directCost < swappedCost,
+          ),
+          _AssignedHandCandidate(
+            candidate: second,
+            isLeft: directCost >= swappedCost,
+          ),
+        ];
+      }
+    }
+
+    final ordered = [first, second]
+      ..sort((a, b) => a.centerX.compareTo(b.centerX));
     return [
-      TrackedHand(
-        landmarks: handsWithCenter.first.landmarks,
-        isLeft: true,
-        hasThumb: true,
-        hasPinky: true,
-      ),
-      TrackedHand(
-        landmarks: handsWithCenter.last.landmarks,
-        isLeft: false,
-        hasThumb: true,
-        hasPinky: true,
-      ),
+      _AssignedHandCandidate(candidate: ordered.first, isLeft: true),
+      _AssignedHandCandidate(candidate: ordered.last, isLeft: false),
     ];
+  }
+
+  double _candidateDistance(
+    _DetectedHandCandidate candidate,
+    TrackedHand hand,
+  ) {
+    final handCenter = hand.trackingCenter;
+    final candidateCenter = candidate.center;
+    final dx = candidateCenter.dx - handCenter.dx;
+    final dy = candidateCenter.dy - handCenter.dy;
+    return dx * dx + dy * dy;
+  }
+
+  double _mediaPipeHandConfidence(List<TrackedLandmark> landmarks) {
+    if (landmarks.length < 21) return 0;
+
+    final wrist = landmarks[0];
+    final indexBase = landmarks[5];
+    final middleBase = landmarks[9];
+    final pinkyBase = landmarks[17];
+    final indexTip = landmarks[8];
+    final thumbTip = landmarks[4];
+    final pinkyTip = landmarks[20];
+
+    final palmWidth = _landmarkDistance(indexBase, pinkyBase);
+    final palmHeight = _landmarkDistance(wrist, middleBase);
+    final indexLength = _landmarkDistance(indexBase, indexTip);
+    final thumbSpread = _landmarkDistance(thumbTip, indexTip);
+    final fingerSpread = _landmarkDistance(thumbTip, pinkyTip);
+
+    if (palmWidth < 0.025 || palmHeight < 0.025) return 0;
+    if (indexLength < palmHeight * 0.28) return 0.35;
+    if (fingerSpread < palmWidth * 0.42 && thumbSpread < palmWidth * 0.24) {
+      return 0.45;
+    }
+
+    final insideCount = landmarks
+        .where(
+          (point) =>
+              point.x >= -0.03 &&
+              point.x <= 1.03 &&
+              point.y >= -0.03 &&
+              point.y <= 1.03,
+        )
+        .length;
+    final insideScore = insideCount / landmarks.length;
+    final sizeScore = ((palmWidth + palmHeight) * 5.2)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final shapeScore = (indexLength / (palmHeight + 0.001))
+        .clamp(0.0, 1.0)
+        .toDouble();
+
+    return (insideScore * 0.45 + sizeScore * 0.30 + shapeScore * 0.25)
+        .clamp(0.0, 1.0)
+        .toDouble();
+  }
+
+  double _landmarkDistance(TrackedLandmark a, TrackedLandmark b) {
+    final dx = a.x - b.x;
+    final dy = a.y - b.y;
+    return Offset(dx, dy).distance;
   }
 
   void _trackHands(List<TrackedHand> detectedHands) {
@@ -329,16 +484,6 @@ class CameraServices {
       _lastRightHandSeenAt = now;
     }
 
-    if (detectedHands.length == 1) {
-      if (detectedLeft != null) {
-        _trackedRightHand = null;
-        _lastRightHandSeenAt = null;
-      } else {
-        _trackedLeftHand = null;
-        _lastLeftHandSeenAt = null;
-      }
-    }
-
     if (_lastLeftHandSeenAt == null ||
         now.difference(_lastLeftHandSeenAt!) > _handVisibilityGrace) {
       _trackedLeftHand = null;
@@ -354,7 +499,9 @@ class CameraServices {
     ];
 
     trackingMessage = hands.isEmpty
-        ? 'Show only your hand clearly in the camera.'
+        ? 'Raise your hands in front of the camera.'
+        : hands.length == 1
+        ? 'One hand tracked. Show both hands for dual control.'
         : null;
   }
 
@@ -364,7 +511,7 @@ class CameraServices {
     _lastLeftHandSeenAt = null;
     _lastRightHandSeenAt = null;
     hands = [];
-    trackingMessage = 'Show only your hand clearly in the camera.';
+    trackingMessage = 'Raise your hands in front of the camera.';
   }
 
   TrackedHand _smoothHand(TrackedHand? previous, TrackedHand current) {
@@ -388,11 +535,18 @@ class CameraServices {
         continue;
       }
 
+      final movement = Offset(dx, dy).distance;
+      final factor = movement > 0.050
+          ? _landmarkFastSmoothingFactor
+          : movement > 0.018
+          ? 0.38
+          : _landmarkSmoothingFactor;
+
       smoothed.add(
         TrackedLandmark(
-          old.x + dx * _landmarkSmoothingFactor,
-          old.y + dy * _landmarkSmoothingFactor,
-          old.z + dz * _landmarkSmoothingFactor,
+          old.x + dx * factor,
+          old.y + dy * factor,
+          old.z + dz * factor,
         ),
       );
     }
@@ -403,6 +557,7 @@ class CameraServices {
       hasThumb: current.hasThumb,
       hasPinky: current.hasPinky,
       detectedFrame: current.detectedFrame,
+      confidence: current.confidence,
     );
   }
 
@@ -564,8 +719,8 @@ class CameraServices {
     int height,
   ) {
     return TrackedLandmark(
-      (landmark.x / width).clamp(0.0, 1.0),
-      (landmark.y / height).clamp(0.0, 1.0),
+      (landmark.x / width).clamp(0.0, 1.0).toDouble(),
+      (landmark.y / height).clamp(0.0, 1.0).toDouble(),
       landmark.z,
     );
   }
@@ -614,8 +769,12 @@ class CameraServices {
     final dy = to.y - from.y;
 
     return TrackedLandmark(
-      (from.x + dx * amount - dy * perpendicularOffset).clamp(0.0, 1.0),
-      (from.y + dy * amount + dx * perpendicularOffset).clamp(0.0, 1.0),
+      (from.x + dx * amount - dy * perpendicularOffset)
+          .clamp(0.0, 1.0)
+          .toDouble(),
+      (from.y + dy * amount + dx * perpendicularOffset)
+          .clamp(0.0, 1.0)
+          .toDouble(),
       from.z + (to.z - from.z) * amount,
     );
   }
@@ -629,6 +788,8 @@ class CameraServices {
       rightCursorPosition = Offset.zero;
       _smoothedLeft = Offset.zero;
       _smoothedRight = Offset.zero;
+      _leftVelocity = Offset.zero;
+      _rightVelocity = Offset.zero;
       onCursorsMove?.call(Offset.zero, Offset.zero);
       return;
     }
@@ -636,15 +797,11 @@ class CameraServices {
     TrackedHand? leftHand;
     TrackedHand? rightHand;
 
-    if (hands.length == 1) {
-      leftHand = hands.first;
-    } else {
-      for (final hand in hands) {
-        if (hand.isLeft) {
-          leftHand = hand;
-        } else {
-          rightHand = hand;
-        }
+    for (final hand in hands) {
+      if (hand.isLeft) {
+        leftHand = hand;
+      } else {
+        rightHand = hand;
       }
     }
 
@@ -654,24 +811,35 @@ class CameraServices {
     Offset? leftTarget = _stableLandmarkCenter(leftHand, usableW, usableH);
     Offset? rightTarget = _stableLandmarkCenter(rightHand, usableW, usableH);
 
+    final now = DateTime.now();
+    final deltaMs = _lastCursorUpdateAt == null
+        ? 16.0
+        : now.difference(_lastCursorUpdateAt!).inMicroseconds / 1000.0;
+    final dt = (deltaMs / 1000.0).clamp(0.008, 0.050).toDouble();
+    _lastCursorUpdateAt = now;
+
     if (leftTarget != null) {
-      _smoothedLeft = _applySmoothing(_smoothedLeft, leftTarget);
+      final next = _applySmoothing(_smoothedLeft, leftTarget, _leftVelocity);
+      _leftVelocity = _cursorVelocity(_smoothedLeft, next, dt);
+      _smoothedLeft = next;
       leftCursorPosition = _smoothedLeft;
     } else {
       leftCursorPosition = Offset.zero;
       _smoothedLeft = Offset.zero;
+      _leftVelocity = Offset.zero;
     }
 
     if (rightTarget != null) {
-      _smoothedRight = _applySmoothing(_smoothedRight, rightTarget);
-
+      final next = _applySmoothing(_smoothedRight, rightTarget, _rightVelocity);
+      _rightVelocity = _cursorVelocity(_smoothedRight, next, dt);
+      _smoothedRight = next;
       rightCursorPosition = _smoothedRight;
     } else {
       rightCursorPosition = Offset.zero;
       _smoothedRight = Offset.zero;
+      _rightVelocity = Offset.zero;
     }
 
-    final now = DateTime.now();
     if (_lastCursorFrameAt != null &&
         now.difference(_lastCursorFrameAt!) < _cursorFrameInterval) {
       return;
@@ -690,17 +858,17 @@ class CameraServices {
   ) {
     if (hand == null || hand.landmarks.length < 21) return null;
 
-    final wrist = hand.landmarks[0];
-    final index = hand.landmarks[8];
-
-    final normalizedX = _displayX(index.x * 0.75 + wrist.x * 0.25);
-    final normalizedY = (index.y * 0.75 + wrist.y * 0.25).clamp(0.0, 1.0);
+    final center = hand.trackingCenter;
+    final normalizedX = _expandControlRange(_displayX(center.dx));
+    final normalizedY = _expandControlRange(
+      center.dy.clamp(0.0, 1.0).toDouble(),
+    );
 
     double tx = _hPadding + normalizedX * usableW;
     double ty = _gridTop + normalizedY * usableH;
 
-    tx = tx.clamp(_hPadding, _screenWidth - _hPadding);
-    ty = ty.clamp(_gridTop, _gridBottom);
+    tx = tx.clamp(_hPadding, _screenWidth - _hPadding).toDouble();
+    ty = ty.clamp(_gridTop, _gridBottom).toDouble();
 
     return Offset(tx, ty);
   }
@@ -709,8 +877,13 @@ class CameraServices {
     return imageX.clamp(0.0, 1.0).toDouble();
   }
 
+  double _expandControlRange(double value) {
+    const gain = 1.12;
+    return ((value - 0.5) * gain + 0.5).clamp(0.0, 1.0).toDouble();
+  }
+
   /// Exponential smoothing with deadzone filtering.
-  Offset _applySmoothing(Offset current, Offset target) {
+  Offset _applySmoothing(Offset current, Offset target, Offset velocity) {
     if (current == Offset.zero) return target;
 
     final dx = target.dx - current.dx;
@@ -720,9 +893,32 @@ class CameraServices {
     if (distanceSq < _deadzone * _deadzone) return current;
 
     final distance = Offset(dx, dy).distance;
-    final factor = distance > 120 ? _fastSmoothingFactor : _smoothingFactor;
+    final speed = velocity.distance;
+    final factor = distance > 120 || speed > 1400
+        ? _fastSmoothingFactor
+        : distance > 42
+        ? 0.44
+        : _smoothingFactor;
 
-    return Offset.lerp(current, target, factor) ?? target;
+    final eased = Offset.lerp(current, target, factor) ?? target;
+    final predictionMs = (speed / 90).clamp(0.0, _maxCursorPredictionMs);
+    final predicted = eased + velocity * (predictionMs / 1000.0);
+
+    return Offset(
+      predicted.dx.clamp(_hPadding, _screenWidth - _hPadding).toDouble(),
+      predicted.dy.clamp(_gridTop, _gridBottom).toDouble(),
+    );
+  }
+
+  Offset _cursorVelocity(Offset previous, Offset current, double dt) {
+    if (previous == Offset.zero || current == Offset.zero) return Offset.zero;
+    final raw = Offset(
+      (current.dx - previous.dx) / dt,
+      (current.dy - previous.dy) / dt,
+    );
+    final speed = raw.distance;
+    if (speed <= 2400) return raw;
+    return raw * (2400 / speed);
   }
 
   // ── Pinch detection ──────────────────────────────────────────────────────
@@ -740,10 +936,8 @@ class CameraServices {
       final distSq = dx * dx + dy * dy;
 
       if (distSq < _pinchThresholdSq) {
-        final previewH = controller?.value.previewSize?.height ?? 1;
-        final previewW = controller?.value.previewSize?.width ?? 1;
-
-        final position = Offset(index.x * previewH, index.y * previewW);
+        final position = hand.isLeft ? leftCursorPosition : rightCursorPosition;
+        if (position == Offset.zero) continue;
         onPinch?.call(position);
         break;
       }
@@ -763,8 +957,28 @@ class CameraServices {
 
 class _DetectedHandCandidate {
   final List<TrackedLandmark> landmarks;
+  final double confidence;
 
-  double get centerX => landmarks[0].x;
+  Offset get center {
+    final palm = Offset(
+      (landmarks[0].x + landmarks[5].x + landmarks[9].x + landmarks[13].x) / 4,
+      (landmarks[0].y + landmarks[5].y + landmarks[9].y + landmarks[13].y) / 4,
+    );
+    final fingertip = Offset(landmarks[8].x, landmarks[8].y);
+    return Offset.lerp(palm, fingertip, 0.72) ?? fingertip;
+  }
 
-  const _DetectedHandCandidate({required this.landmarks});
+  double get centerX => center.dx;
+
+  const _DetectedHandCandidate({
+    required this.landmarks,
+    required this.confidence,
+  });
+}
+
+class _AssignedHandCandidate {
+  final _DetectedHandCandidate candidate;
+  final bool isLeft;
+
+  const _AssignedHandCandidate({required this.candidate, required this.isLeft});
 }

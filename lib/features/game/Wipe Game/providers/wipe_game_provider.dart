@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:demo_p/features/game/Wipe%20Game/viewmodel/wipe_cell_model.dart';
+import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:demo_p/features/game/services/camera_services.dart';
 import 'package:flutter/material.dart';
 
@@ -35,6 +36,7 @@ class WipeGameProvider extends ChangeNotifier {
 
   bool isInitialized = false;
   bool isCompleted = false;
+  bool isPaused = false;
   bool _notifyQueued = false;
 
   static const double _cursorNotifyEpsilon = 0.75;
@@ -56,6 +58,11 @@ class WipeGameProvider extends ChangeNotifier {
 
       leftCursor = left;
       rightCursor = right;
+
+      if (isPaused) {
+        if (cursorChanged) _scheduleNotify();
+        return;
+      }
 
       final didWipeLeft = _detectWipe(leftCursor);
       final didWipeRight = _detectWipe(rightCursor);
@@ -132,8 +139,19 @@ class WipeGameProvider extends ChangeNotifier {
     restartGame();
   }
 
+  void attachSafetyMonitor(GameCalibrationService? safetyMonitor) {
+    cameraServices.safetyMonitor = safetyMonitor;
+  }
+
+  void setPaused(bool value) {
+    if (isPaused == value) return;
+    isPaused = value;
+    notifyListeners();
+  }
+
   Future<void> disposeCamera() async {
     cameraServices.onCursorsMove = null;
+    cameraServices.safetyMonitor = null;
     await cameraServices.dispose();
   }
 }
