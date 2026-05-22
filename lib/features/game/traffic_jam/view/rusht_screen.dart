@@ -4,7 +4,9 @@ import '../model/vehicle_model.dart';
 import '../provider/rush_provider.dart';
 
 class RushScreen extends ConsumerStatefulWidget {
-  const RushScreen({super.key});
+  final bool isPaused;
+
+  const RushScreen({super.key, this.isPaused = false});
 
   @override
   ConsumerState<RushScreen> createState() => _RushScreenState();
@@ -99,6 +101,7 @@ class _RushScreenState extends ConsumerState<RushScreen> {
                               cellSize: cellSize,
                               isDragging: _draggingId == v.id,
                               onDragStart: (details) {
+                                if (widget.isPaused) return;
                                 _draggingId = v.id;
                                 _dragStartCol = v.col;
                                 _dragStartRow = v.row;
@@ -106,6 +109,7 @@ class _RushScreenState extends ConsumerState<RushScreen> {
                                 _accumDy = 0;
                               },
                               onDragUpdate: (details) {
+                                if (widget.isPaused) return;
                                 if (_draggingId != v.id) return;
                                 _accumDx += details.delta.dx;
                                 _accumDy += details.delta.dy;
@@ -135,7 +139,7 @@ class _RushScreenState extends ConsumerState<RushScreen> {
           ),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: () => ref.read(rushProvider).reset(),
+            onPressed: widget.isPaused ? null : () => ref.read(rushProvider).reset(),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2A2A3E),
               foregroundColor: Colors.white,
