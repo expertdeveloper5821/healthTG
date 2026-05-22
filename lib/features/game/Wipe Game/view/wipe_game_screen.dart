@@ -24,12 +24,9 @@ class _WipeGameScreenState extends ConsumerState<WipeGameScreen> {
   @override
   void initState() {
     super.initState();
-
-    Future.microtask(() {
-      ref.read(wipeGameProvider)
-        ..attachSafetyMonitor(widget.safetyMonitor)
-        ..initialize();
-    });
+    ref.read(wipeGameProvider)
+      ..attachSafetyMonitor(widget.safetyMonitor)
+      ..initialize();
   }
 
   @override
