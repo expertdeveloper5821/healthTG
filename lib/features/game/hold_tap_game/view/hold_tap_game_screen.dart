@@ -25,11 +25,9 @@ class _HoldTapGameScreenState extends ConsumerState<HoldTapGameScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      ref.read(holdTapGameProvider)
-        ..attachSafetyMonitor(widget.safetyMonitor)
-        ..initialize();
-    });
+    ref.read(holdTapGameProvider)
+      ..attachSafetyMonitor(widget.safetyMonitor)
+      ..initialize();
   }
 
   @override

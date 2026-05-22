@@ -34,11 +34,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
-  
-    Future.microtask(() {
-      ref.read(healthProvider.notifier).fetchHealthData();
-    });
+    ref.read(healthProvider.notifier).fetchHealthData();
   }
 
   @override
