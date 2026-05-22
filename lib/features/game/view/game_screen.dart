@@ -1,4 +1,3 @@
-
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
@@ -6,6 +5,7 @@ import 'package:demo_p/features/game/calibration/game_types.dart';
 import 'package:demo_p/features/game/hold_tap_game/view/hold_tap_game_screen.dart';
 import 'package:demo_p/features/game/traffic_jam/view/rusht_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
+import 'package:demo_p/features/game/puzzle/screens/puzzle_game_screen.dart';
 import 'package:flutter/material.dart';
 
 class GameScreen extends StatelessWidget {
@@ -19,30 +19,35 @@ class GameScreen extends StatelessWidget {
         "icon": Icons.psychology,
         "color": Colors.blue,
         "usesGameCamera": true,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => MemoryGameScreen(
-          isPaused: isPaused,
-          safetyMonitor: safetyMonitor,
-        ),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            MemoryGameScreen(isPaused: isPaused, safetyMonitor: safetyMonitor),
       },
       {
         "title": "Wipe Game",
         "icon": Icons.cleaning_services,
         "color": Colors.orange,
         "usesGameCamera": true,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => WipeGameScreen(
-          isPaused: isPaused,
-          safetyMonitor: safetyMonitor,
-        ),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            WipeGameScreen(isPaused: isPaused, safetyMonitor: safetyMonitor),
       },
       {
         "title": "Hold Tap",
         "icon": Icons.touch_app,
         "color": Colors.cyan,
         "usesGameCamera": true,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => HoldTapGameScreen(
-          isPaused: isPaused,
-          safetyMonitor: safetyMonitor,
-        ),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            HoldTapGameScreen(isPaused: isPaused, safetyMonitor: safetyMonitor),
+      },
+      {
+        "title": "Puzzle Game",
+        "icon": Icons.extension,
+        "color": const Color(0xFF33D69F),
+          "requiresCalibration": false,
+        "usesGameCamera": true,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            PuzzleGameScreen(isPaused: isPaused,
+            //  safetyMonitor: safetyMonitor
+             ),
       },
       {
         "title": "Rush",
@@ -50,50 +55,34 @@ class GameScreen extends StatelessWidget {
         "color": Colors.red,
         "requiresCalibration": false,
         "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => RushScreen(isPaused: isPaused),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            RushScreen(isPaused: isPaused),
       },
       {
         "title": "Color Match",
         "icon": Icons.color_lens,
         "color": Colors.green,
         "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            const ComingSoonScreen(),
       },
       {
         "title": "Snake Game",
         "icon": Icons.gamepad,
         "color": Colors.teal,
         "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            const ComingSoonScreen(),
       },
       {
         "title": "Typing Game",
         "icon": Icons.keyboard,
         "color": Colors.indigo,
         "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            const ComingSoonScreen(),
       },
-      {
-        "title": "Target Game",
-        "icon": Icons.gps_fixed,
-        "color": Colors.pink,
-        "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
-      },
-      {
-        "title": "Fruit Cut",
-        "icon": Icons.apple,
-        "color": Colors.deepOrange,
-        "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
-      },
-      {
-        "title": "Reaction Game",
-        "icon": Icons.flash_on,
-        "color": Colors.amber,
-        "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) => const ComingSoonScreen(),
-      },
+     
     ];
 
     return Scaffold(
@@ -104,18 +93,14 @@ class GameScreen extends StatelessWidget {
         centerTitle: true,
         title: const Text(
           "Mini Games",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: GridView.builder(
           itemCount: games.length,
-          gridDelegate:
-              const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
@@ -164,18 +149,13 @@ class GameScreen extends StatelessWidget {
                     CircleAvatar(
                       radius: 38,
                       backgroundColor: game["color"],
-                      child: Icon(
-                        game["icon"],
-                        color: Colors.white,
-                        size: 38,
-                      ),
+                      child: Icon(game["icon"], color: Colors.white, size: 38),
                     ),
 
                     const SizedBox(height: 18),
 
                     Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
                         game["title"],
                         textAlign: TextAlign.center,
@@ -195,9 +175,8 @@ class GameScreen extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius:
-                            BorderRadius.circular(12),
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Text(
                         "Play",

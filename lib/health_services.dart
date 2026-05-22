@@ -104,7 +104,7 @@ class HealthService {
       final today = DateTime(now.year, now.month, now.day);
       final weekAgo = now.subtract(const Duration(days: 7));
 
-      // STEPS
+    
       try {
         int? steps = await _health.getTotalStepsInInterval(today, now);
         result['steps'] = steps ?? 0;
@@ -113,7 +113,7 @@ class HealthService {
         print(" Steps error: $e");
       }
 
-      // BAAKI SAARA DATA
+     
       try {
         List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
           types: [
