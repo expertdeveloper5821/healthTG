@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Posture App',
+      title: 'HealthTG',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const GameScreen(),
