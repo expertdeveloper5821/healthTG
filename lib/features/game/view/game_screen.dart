@@ -9,12 +9,15 @@ import 'package:demo_p/features/game/traffic_jam/view/rusht_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
 import 'package:demo_p/features/game/puzzle/screens/puzzle_game_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:demo_p/features/auth/provider/auth_provider.dart';
+import 'package:demo_p/features/auth/view/login_page.dart';
 
-class GameScreen extends StatelessWidget {
+class GameScreen extends ConsumerWidget {
   const GameScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final List<Map<String, dynamic>> games = [
       {
         "title": "Memory Game",
@@ -61,18 +64,6 @@ class GameScreen extends StatelessWidget {
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             SquatGameScreen(isPaused: isPaused),
       },
-      // {
-      //   "title": "Elephant Jungle",
-      //   "icon": Icons.pets,
-      //   "color": const Color(0xFF4CAF50),
-      //   "usesGameCamera": true,
-      //    "requiresCalibration": false,
-      //   "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
-      //       ElephantGameScreen(
-      //         isPaused: isPaused,
-      //         // safetyMonitor: safetyMonitor,
-      //       ),
-      // },
       {
         "title": "Rush",
         "icon": Icons.traffic,
@@ -82,7 +73,6 @@ class GameScreen extends StatelessWidget {
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             RushScreen(isPaused: isPaused),
       },
-
       {
         "title": "Whiteboard",
         "icon": Icons.draw_outlined,
@@ -121,6 +111,21 @@ class GameScreen extends StatelessWidget {
           "Mini Games",
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await ref.read(authProvider).logout();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                  (route) => false,
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -153,6 +158,7 @@ class GameScreen extends StatelessWidget {
                   ),
                 );
               },
+
               child: Container(
                 decoration: BoxDecoration(
                   color: game["color"].withOpacity(0.18),
