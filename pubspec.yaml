@@ -54,6 +54,7 @@ dependencies:
   hand_landmarker: ^2.1.2
   flame: ^1.18.0
   path_provider: ^2.1.4
+  noise_meter: ^5.1.0
 
 dev_dependencies:
   flutter_test:
