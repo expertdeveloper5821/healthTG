@@ -1,16 +1,12 @@
-import 'package:demo_p/features/Splash%20Screen/Onboarding_screen.dart';
-import 'package:demo_p/features/game/view/game_screen.dart';
+import 'package:demo_p/features/auth/view/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:demo_p/core/theme/app_theme.dart';
 
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-void main() {
-  runApp(
-    const ProviderScope( 
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -22,7 +18,7 @@ class MyApp extends StatelessWidget {
       title: 'Posture App',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const GameScreen(),
+      home: const AuthGate(),
     );
   }
 }
