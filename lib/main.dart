@@ -1,14 +1,12 @@
-import 'package:demo_p/features/game/view/game_screen.dart';
+import 'package:demo_p/features/auth/view/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:demo_p/core/theme/app_theme.dart';
 
-void main() {
-  runApp(
-    const ProviderScope( 
-      child: MyApp(),
-    ),
-  );
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -17,10 +15,10 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'HealthTG',
+      title: 'Posture App',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const GameScreen(),
+      home: const AuthGate(),
     );
   }
 }

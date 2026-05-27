@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_volume_controller
+  flutter_webrtc
   permission_handler_windows
 )
 
