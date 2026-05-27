@@ -1,8 +1,10 @@
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
+import 'package:demo_p/features/game/whitepad/screens/whiteboard_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:demo_p/features/game/calibration/game_types.dart';
 import 'package:demo_p/features/game/hold_tap_game/view/hold_tap_game_screen.dart';
+import 'package:demo_p/features/game/squat_game/ui/screens/game_screen.dart';
 import 'package:demo_p/features/game/traffic_jam/view/rusht_screen.dart';
 import 'package:demo_p/features/game/view/memory_game_screen.dart';
 import 'package:demo_p/features/game/puzzle/screens/puzzle_game_screen.dart';
@@ -42,13 +44,35 @@ class GameScreen extends StatelessWidget {
         "title": "Puzzle Game",
         "icon": Icons.extension,
         "color": const Color(0xFF33D69F),
-          "requiresCalibration": false,
+        "requiresCalibration": false,
         "usesGameCamera": true,
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
-            PuzzleGameScreen(isPaused: isPaused,
-            //  safetyMonitor: safetyMonitor
-             ),
+            PuzzleGameScreen(
+              isPaused: isPaused,
+              //  safetyMonitor: safetyMonitor
+            ),
       },
+      {
+        "title": "Squat Game",
+        "icon": Icons.fitness_center,
+        "color": const Color(0xFFFFD166),
+        "requiresCalibration": false,
+        "usesGameCamera": true,
+        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+            SquatGameScreen(isPaused: isPaused),
+      },
+      // {
+      //   "title": "Elephant Jungle",
+      //   "icon": Icons.pets,
+      //   "color": const Color(0xFF4CAF50),
+      //   "usesGameCamera": true,
+      //    "requiresCalibration": false,
+      //   "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
+      //       ElephantGameScreen(
+      //         isPaused: isPaused,
+      //         // safetyMonitor: safetyMonitor,
+      //       ),
+      // },
       {
         "title": "Rush",
         "icon": Icons.traffic,
@@ -58,18 +82,21 @@ class GameScreen extends StatelessWidget {
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             RushScreen(isPaused: isPaused),
       },
+
       {
-        "title": "Color Match",
-        "icon": Icons.color_lens,
-        "color": Colors.green,
+        "title": "Whiteboard",
+        "icon": Icons.draw_outlined,
+        "color": const Color(0xFF9C27B0),
+        "requiresCalibration": false,
         "usesGameCamera": false,
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
-            const ComingSoonScreen(),
+            const WhiteboardScreen(),
       },
       {
         "title": "Snake Game",
         "icon": Icons.gamepad,
         "color": Colors.teal,
+        "requiresCalibration": false,
         "usesGameCamera": false,
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             const ComingSoonScreen(),
@@ -82,7 +109,6 @@ class GameScreen extends StatelessWidget {
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             const ComingSoonScreen(),
       },
-     
     ];
 
     return Scaffold(
