@@ -36,14 +36,15 @@ class CalibrationCameraPanel extends StatelessWidget {
                 FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
-                    width: controller.value.previewSize?.height ?? 1,
-                    height: controller.value.previewSize?.width ?? 1,
+width: controller.value.previewSize!.height,
+height: controller.value.previewSize!.width,
                     child: CameraPreview(controller),
                   ),
                 )
               else
                 const _CameraPlaceholder(),
               CustomPaint(
+                size: Size.infinite,
                 painter: PoseOverlayPainter(
                   points: service.posePoints,
                   color: service.skeletonColor,
@@ -459,31 +460,42 @@ class PoseOverlayPainter extends CustomPainter {
       canvas.drawCircle(offset, 2.1, dotPaint);
     }
   }
+Offset _scale(Offset normalized, Size size) {
+  final sourceSize = imageSize;
 
-  Offset _scale(Offset normalized, Size size) {
-    final sourceSize = imageSize;
-    if (sourceSize == null ||
-        sourceSize.width <= 0 ||
-        sourceSize.height <= 0 ||
-        size.width <= 0 ||
-        size.height <= 0) {
-      return Offset(normalized.dx * size.width, normalized.dy * size.height);
-    }
-
-    final scale = max(
-      size.width / sourceSize.width,
-      size.height / sourceSize.height,
-    );
-    final fittedWidth = sourceSize.width * scale;
-    final fittedHeight = sourceSize.height * scale;
-    final dx = (size.width - fittedWidth) / 2;
-    final dy = (size.height - fittedHeight) / 2;
-
+  if (sourceSize == null ||
+      sourceSize.width <= 0 ||
+      sourceSize.height <= 0) {
     return Offset(
-      dx + normalized.dx * fittedWidth,
-      dy + normalized.dy * fittedHeight,
+      normalized.dx * size.width,
+      normalized.dy * size.height,
     );
   }
+
+  final imageWidth = sourceSize.height;
+  final imageHeight = sourceSize.width;
+
+  final scale = max(
+    size.width / imageWidth,
+    size.height / imageHeight,
+  );
+
+  final fittedWidth = imageWidth * scale;
+  final fittedHeight = imageHeight * scale;
+
+  final offsetX = (fittedWidth - size.width) / 2;
+  final offsetY = (fittedHeight - size.height) / 2;
+
+  final mirroredX = 1 - normalized.dx;
+
+  // tiny alignment compensation
+  final horizontalCorrection = size.width * -0.2;
+final verticalCorrection = size.height * -0.09;
+  return Offset(
+  mirroredX * fittedWidth - offsetX + horizontalCorrection,
+  normalized.dy * fittedHeight - offsetY + verticalCorrection,
+);
+}
 
   @override
   bool shouldRepaint(covariant PoseOverlayPainter oldDelegate) {
