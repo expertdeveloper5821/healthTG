@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:demo_p/core/config/app_config.dart';
 import 'package:demo_p/features/video_call/service/peerjs_signaling_service.dart';
 import 'package:demo_p/features/video_call/service/video_call_api_service.dart';
@@ -26,6 +28,8 @@ class PatientCallManager {
   String? _remotePeerId;
   String _mediaConnId = '';
   String _dataConnId = '';
+  Timer? _availabilityTimer;
+  bool _disposed = false;
 
   // Callbacks for the UI layer
   Function(
@@ -36,11 +40,20 @@ class PatientCallManager {
   onIncomingCall;
   Function(Map<String, dynamic> msg)? onDataMessage;
   VoidCallback? onCallEnded;
+  VoidCallback? onSignalingClosed;
 
   void start() {
+    _disposed = false;
     signaling.onOpen = () {
       debugPrint('[Patient] signaling open, peerId=$myPeerId');
       _markAvailable();
+      _startAvailabilityHeartbeat();
+    };
+
+    signaling.onClosed = () {
+      _availabilityTimer?.cancel();
+      _availabilityTimer = null;
+      onSignalingClosed?.call();
     };
 
     // Mirrors the Angular patient flow: if this peer id is still registered
@@ -118,7 +131,7 @@ class PatientCallManager {
 
   Future<void> _markAvailable() async {
     final id = patientId;
-    if (id == null) {
+    if (_disposed || id == null) {
       debugPrint('[Patient] cannot mark available — missing patientId');
       return;
     }
@@ -146,6 +159,27 @@ class PatientCallManager {
     }
   }
 
+  void _startAvailabilityHeartbeat() {
+    _availabilityTimer?.cancel();
+    _availabilityTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _markAvailable();
+    });
+  }
+
+  Future<void> _markUnavailable() async {
+    final id = patientId;
+    if (id == null) return;
+    try {
+      await apiService.updatePatientAvailabilityStatus(
+        token,
+        patientId: id,
+        availabilityStatus: 'unavailable',
+      );
+    } catch (error) {
+      debugPrint('[Patient] mark unavailable failed: $error');
+    }
+  }
+
   /// Send progress update to therapist
   void sendProgressUpdate(double percentage) {
     callService.sendMessage({
@@ -170,12 +204,18 @@ class PatientCallManager {
   }
 
   void hangUp() {
+    _availabilityTimer?.cancel();
+    _availabilityTimer = null;
     if (_remotePeerId != null) signaling.sendLeave(_remotePeerId!);
     callService.hangUp();
     onCallEnded?.call();
   }
 
   void dispose() {
+    _disposed = true;
+    _availabilityTimer?.cancel();
+    _availabilityTimer = null;
+    _markUnavailable();
     callService.hangUp();
     signaling.dispose();
   }

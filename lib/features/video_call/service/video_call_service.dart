@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class VideoCallService {
   RTCPeerConnection? _mediaPc;
@@ -9,6 +13,8 @@ class VideoCallService {
   RTCDataChannel? _dataChannel;
   MediaStream? localStream;
   MediaStream? _screenShareStream;
+  Timer? _disconnectTimer;
+  bool _screenShareSwitching = false;
 
   // Set by the caller so ICE candidates carry the right connectionId
   String mediaConnId = '';
@@ -19,6 +25,11 @@ class VideoCallService {
   Function(Map<String, dynamic> msg)? onDataMessage;
   VoidCallback? onCallEnded;
   VoidCallback? onDataChannelOpen;
+  VoidCallback? onScreenShareEnded;
+
+  static const _androidScreenShareChannel = MethodChannel(
+    'com.example.demo_p/screen_share',
+  );
 
   Future<void> initialize(Map<String, dynamic> iceData) async {
     final config = {
@@ -41,9 +52,24 @@ class VideoCallService {
     };
     _mediaPc!.onConnectionState = (state) {
       debugPrint('[WebRTC] media pc state: $state');
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _disconnectTimer?.cancel();
         onCallEnded?.call();
+        return;
+      }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        _disconnectTimer?.cancel();
+        _disconnectTimer = Timer(const Duration(seconds: 10), () {
+          debugPrint('[WebRTC] media pc remained disconnected');
+          onCallEnded?.call();
+        });
+        return;
+      }
+
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _disconnectTimer?.cancel();
+        _disconnectTimer = null;
       }
     };
 
@@ -151,50 +177,92 @@ class VideoCallService {
   Future<void> startScreenShare() async {
     if (_mediaPc == null) return;
     if (_screenShareStream != null) return;
+    if (_screenShareSwitching) return;
+    _screenShareSwitching = true;
 
-    _screenShareStream = await navigator.mediaDevices.getDisplayMedia({
-      'video': true,
-      'audio': false,
-    });
-    final tracks = _screenShareStream!.getVideoTracks();
-    if (tracks.isEmpty) {
-      await _screenShareStream?.dispose();
-      _screenShareStream = null;
-      throw Exception('No screen-share video track was created.');
-    }
+    final cameraTrack = _currentCameraVideoTrack();
 
-    final senders = await _mediaPc!.getSenders();
-    var replaced = false;
-    for (final sender in senders) {
-      if (sender.track?.kind == 'video') {
-        await sender.replaceTrack(tracks.first);
-        replaced = true;
-        break;
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        await _ensureAndroidScreenShareRuntimePermissions();
+        final granted = await Helper.requestCapturePermission();
+        if (!granted) {
+          throw Exception('Screen sharing permission was denied.');
+        }
+        await _startAndroidScreenShareService();
       }
-    }
 
-    if (!replaced) {
-      for (final track in _screenShareStream?.getTracks() ?? []) {
-        track.stop();
+      _screenShareStream = await navigator.mediaDevices.getDisplayMedia({
+        'video': {
+          'frameRate': 15,
+        },
+        'audio': false,
+      });
+      final tracks = _screenShareStream!.getVideoTracks();
+      if (tracks.isEmpty) {
+        throw Exception('No screen-share video track was created.');
       }
-      await _screenShareStream?.dispose();
-      _screenShareStream = null;
-      throw Exception('Could not find an outgoing video sender.');
+      tracks.first.onEnded = () {
+        if (_screenShareStream != null && !_screenShareSwitching) {
+          unawaited(stopScreenShare());
+        }
+      };
+
+      final sender = await _findVideoSender();
+      if (sender == null) {
+        throw Exception('Could not find an outgoing video sender.');
+      }
+
+      await sender.replaceTrack(tracks.first);
+    } catch (error) {
+      debugPrint('[WebRTC] startScreenShare failed: $error');
+      if (cameraTrack != null) {
+        try {
+          final sender = await _findVideoSender();
+          await sender?.replaceTrack(cameraTrack);
+        } catch (_) {}
+      }
+      await _disposeScreenShareStream();
+      await _stopAndroidScreenShareService();
+      rethrow;
+    } finally {
+      _screenShareSwitching = false;
     }
   }
 
   Future<void> stopScreenShare() async {
-    if (_mediaPc == null || localStream == null) return;
-    final videoTracks = localStream!.getVideoTracks();
-    if (videoTracks.isNotEmpty) {
-      final senders = await _mediaPc!.getSenders();
-      for (final sender in senders) {
-        if (sender.track?.kind == 'video') {
-          await sender.replaceTrack(videoTracks.first);
-          break;
-        }
+    if (_screenShareSwitching) return;
+    _screenShareSwitching = true;
+    try {
+      if (_mediaPc == null || localStream == null) return;
+      final videoTrack = _currentCameraVideoTrack();
+      final sender = await _findVideoSender();
+      if (sender != null && videoTrack != null) {
+        await sender.replaceTrack(videoTrack);
       }
+    } finally {
+      await _disposeScreenShareStream();
+      await _stopAndroidScreenShareService();
+      _screenShareSwitching = false;
+      onScreenShareEnded?.call();
     }
+  }
+
+  Future<RTCRtpSender?> _findVideoSender() async {
+    final senders = await _mediaPc?.getSenders();
+    if (senders == null) return null;
+    for (final sender in senders) {
+      if (sender.track?.kind == 'video') return sender;
+    }
+    return null;
+  }
+
+  MediaStreamTrack? _currentCameraVideoTrack() {
+    final tracks = localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    return tracks.isEmpty ? null : tracks.first;
+  }
+
+  Future<void> _disposeScreenShareStream() async {
     for (final track in _screenShareStream?.getTracks() ?? []) {
       track.stop();
     }
@@ -202,12 +270,47 @@ class VideoCallService {
     _screenShareStream = null;
   }
 
+  Future<void> _startAndroidScreenShareService() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _androidScreenShareChannel.invokeMethod('start');
+    } catch (error) {
+      debugPrint('[WebRTC] start Android screen-share service failed: $error');
+      rethrow;
+    }
+  }
+
+  Future<void> _ensureAndroidScreenShareRuntimePermissions() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final notificationStatus = await Permission.notification.status;
+    if (notificationStatus.isDenied) {
+      final requested = await Permission.notification.request();
+      if (!requested.isGranted) {
+        debugPrint(
+          '[WebRTC] notification permission not granted; starting screen-share foreground service anyway',
+        );
+      }
+    }
+  }
+
+  Future<void> _stopAndroidScreenShareService() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _androidScreenShareChannel.invokeMethod('stop');
+    } catch (error) {
+      debugPrint('[WebRTC] stop Android screen-share service failed: $error');
+    }
+  }
+
   void hangUp() {
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
     for (final track in _screenShareStream?.getTracks() ?? []) {
       track.stop();
     }
     _screenShareStream?.dispose();
     _screenShareStream = null;
+    _stopAndroidScreenShareService();
     _mediaPc?.close();
     _dataPc?.close();
     localStream?.dispose();

@@ -29,7 +29,6 @@ class VideoCallScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
-  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _popped = false;
   bool _renderersReady = false;
@@ -46,10 +45,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   }
 
   Future<void> _initializeRenderers() async {
-    await Future.wait([
-      _localRenderer.initialize(),
-      _remoteRenderer.initialize(),
-    ]);
+    await _remoteRenderer.initialize();
     if (!mounted) return;
     _renderersReady = true;
     _syncRenderers(ref.read(videoCallProvider));
@@ -69,7 +65,6 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
   @override
   void dispose() {
-    _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
   }
@@ -83,11 +78,6 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   void _syncRenderers(VideoCallState state) {
     if (!_renderersReady) return;
     var changed = false;
-    if (state.localStream != null &&
-        _localRenderer.srcObject != state.localStream) {
-      _localRenderer.srcObject = state.localStream;
-      changed = true;
-    }
     if (state.remoteStream != null &&
         _remoteRenderer.srcObject != state.remoteStream) {
       _remoteRenderer.srcObject = state.remoteStream;
@@ -118,22 +108,25 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
             // ── Remote video fullscreen ─────────────────────────────────
             Positioned.fill(
               child: callState.remoteStream != null
-                  ? RTCVideoView(_remoteRenderer)
+                  ? RTCVideoView(
+                      _remoteRenderer,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    )
                   : _WaitingView(isTherapist: widget.isTherapist),
             ),
 
             // ── Local video PiP (top-right) ─────────────────────────────
-            if (callState.localStream != null)
-              Positioned(
-                top: 52,
-                right: 16,
-                width: 110,
-                height: 150,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: RTCVideoView(_localRenderer, mirror: true),
-                ),
+            Positioned(
+              top: 52,
+              right: 16,
+              width: 110,
+              height: 150,
+              child: _LocalPreview(
+                stream: callState.localStream,
+                isCameraOff: callState.isCameraOff,
               ),
+            ),
 
             // ── Status chip (top-left) ──────────────────────────────────
             Positioned(
@@ -220,6 +213,95 @@ class _WaitingView extends StatelessWidget {
               style: const TextStyle(color: Colors.white54, fontSize: 15),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LocalPreview extends StatefulWidget {
+  const _LocalPreview({
+    required this.stream,
+    required this.isCameraOff,
+  });
+
+  final MediaStream? stream;
+  final bool isCameraOff;
+
+  @override
+  State<_LocalPreview> createState() => _LocalPreviewState();
+}
+
+class _LocalPreviewState extends State<_LocalPreview> {
+  final RTCVideoRenderer _renderer = RTCVideoRenderer();
+  bool _ready = false;
+  bool _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeRenderer();
+  }
+
+  Future<void> _initializeRenderer() async {
+    await _renderer.initialize();
+    if (!mounted || _disposed) return;
+    _renderer.srcObject = widget.stream;
+    setState(() => _ready = true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_ready && _renderer.srcObject != widget.stream) {
+      _renderer.srcObject = widget.stream;
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _renderer.srcObject = null;
+    _renderer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D1117),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white24),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black45,
+              blurRadius: 16,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_ready && widget.stream != null && !widget.isCameraOff)
+                RTCVideoView(
+                  _renderer,
+                  mirror: true,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                )
+              else
+                const ColoredBox(
+                  color: Color(0xFF0D1117),
+                  child: Center(
+                    child: Icon(Icons.videocam_off, color: Colors.white54),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

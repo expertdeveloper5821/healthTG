@@ -195,6 +195,11 @@ class VideoCallNotifier extends Notifier<VideoCallState> {
           state = state.copyWith(status: CallStatus.ended);
         }
       };
+      _callService!.onScreenShareEnded = () {
+        if (state.isScreenSharing) {
+          state = state.copyWith(isScreenSharing: false);
+        }
+      };
 
       _signaling = PeerJSSignalingService();
       _patientManager = PatientCallManager(
@@ -221,6 +226,13 @@ class VideoCallNotifier extends Notifier<VideoCallState> {
         _pendingDecline = null;
         if (state.status != CallStatus.ended) {
           state = state.copyWith(status: CallStatus.ended);
+        }
+      };
+
+      _patientManager!.onSignalingClosed = () {
+        if (state.status == CallStatus.idle ||
+            state.status == CallStatus.connecting) {
+          state = state.copyWith(status: CallStatus.disconnected);
         }
       };
 
@@ -316,6 +328,11 @@ class VideoCallNotifier extends Notifier<VideoCallState> {
       _callService!.onCallEnded = () {
         if (state.status != CallStatus.ended) {
           state = state.copyWith(status: CallStatus.ended);
+        }
+      };
+      _callService!.onScreenShareEnded = () {
+        if (state.isScreenSharing) {
+          state = state.copyWith(isScreenSharing: false);
         }
       };
 
@@ -434,11 +451,12 @@ class VideoCallNotifier extends Notifier<VideoCallState> {
 
   Future<bool> toggleScreenShare() async {
     try {
+      if (_callService == null) return false;
       if (state.isScreenSharing) {
-        await _callService?.stopScreenShare();
+        await _callService!.stopScreenShare();
         state = state.copyWith(isScreenSharing: false);
       } else {
-        await _callService?.startScreenShare();
+        await _callService!.startScreenShare();
         state = state.copyWith(isScreenSharing: true);
       }
       return true;
@@ -459,7 +477,11 @@ class VideoCallNotifier extends Notifier<VideoCallState> {
   }
 
   Future<void> _requestPermissions() async {
-    await [Permission.camera, Permission.microphone].request();
+    final permissions = <Permission>[Permission.camera, Permission.microphone];
+    if (!kIsWeb && Platform.isAndroid) {
+      permissions.add(Permission.bluetoothConnect);
+    }
+    await permissions.request();
   }
 
   Future<String> _resolvePeerAuthToken(

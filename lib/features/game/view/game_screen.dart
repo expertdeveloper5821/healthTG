@@ -76,6 +76,7 @@ class GameScreen extends ConsumerWidget {
             RushScreen(isPaused: isPaused),
       },
       {
+         "title": "",
         "color": const Color(0xFF9C27B0),
         "requiresCalibration": false,
         "usesGameCamera": false,

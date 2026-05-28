@@ -51,7 +51,7 @@ dependencies:
   google_mlkit_commons: ^0.11.1
 
   # Video call
-  flutter_webrtc: ^0.9.48
+  flutter_webrtc: ^1.4.1
   web_socket_channel: ^2.4.0
   uuid: ^4.2.1
 

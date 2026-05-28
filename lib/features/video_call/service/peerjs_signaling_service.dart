@@ -25,6 +25,7 @@ class PeerJSSignalingService {
   Function(String src)? onLeave;
   VoidCallback? onOpen;
   VoidCallback? onIdTaken;
+  VoidCallback? onClosed;
 
   void connect(
     String peerId,
@@ -68,7 +69,10 @@ class PeerJSSignalingService {
     _sub = _channel!.stream.listen(
       _handleMessage,
       onError: (err) => debugPrint('[PeerJS] ws error: $err'),
-      onDone: () => debugPrint('[PeerJS] ws closed'),
+      onDone: () {
+        debugPrint('[PeerJS] ws closed');
+        if (!_disposed) onClosed?.call();
+      },
       cancelOnError: false,
     );
 
