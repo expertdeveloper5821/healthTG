@@ -21,14 +21,30 @@ class VideoCallWrapper extends ConsumerStatefulWidget {
   ConsumerState<VideoCallWrapper> createState() => _VideoCallWrapperState();
 }
 
-class _VideoCallWrapperState extends ConsumerState<VideoCallWrapper> {
+class _VideoCallWrapperState extends ConsumerState<VideoCallWrapper>
+    with WidgetsBindingObserver {
   bool _signalingStarted = false;
   bool _navigating = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSignaling());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ref.read(videoCallProvider.notifier).resetAfterCall();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _onResume();
+    }
   }
 
   Future<void> _startSignaling() async {
@@ -36,6 +52,19 @@ class _VideoCallWrapperState extends ConsumerState<VideoCallWrapper> {
     _signalingStarted = true;
     debugPrint('[VideoCallWrapper] starting patient signaling');
     await ref.read(videoCallProvider.notifier).startPatientSignaling();
+  }
+
+  Future<void> _onResume() async {
+    if (!mounted) return;
+    final status = ref.read(videoCallProvider).status;
+    if (status == CallStatus.inCall || status == CallStatus.ringing) return;
+    if (status == CallStatus.disconnected ||
+        status == CallStatus.ended ||
+        status == CallStatus.error) {
+      ref.read(videoCallProvider.notifier).resetAfterCall();
+      _signalingStarted = false;
+      await _startSignaling();
+    }
   }
 
   @override

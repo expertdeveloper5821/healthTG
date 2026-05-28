@@ -19,6 +19,7 @@ class _SquatGameScreenState extends ConsumerState<SquatGameScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
+      if (!mounted) return;
       ref.read(squatGameProvider.notifier)
         ..setPaused(widget.isPaused)
         ..initialize();
@@ -31,12 +32,6 @@ class _SquatGameScreenState extends ConsumerState<SquatGameScreen> {
     if (oldWidget.isPaused != widget.isPaused) {
       ref.read(squatGameProvider.notifier).setPaused(widget.isPaused);
     }
-  }
-
-  @override
-  void dispose() {
-    ref.invalidate(squatGameProvider);
-    super.dispose();
   }
 
   @override

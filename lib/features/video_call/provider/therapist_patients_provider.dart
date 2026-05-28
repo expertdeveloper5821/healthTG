@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:demo_p/features/auth/provider/auth_provider.dart';
 import 'package:demo_p/features/video_call/model/patient_peer.dart';
 import 'package:demo_p/features/video_call/service/video_call_api_service.dart';
@@ -11,13 +13,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 ///   5. Annotate patient details with status and peer connectivity
 class TherapistPatientsNotifier extends AsyncNotifier<List<PatientPeer>> {
   final _api = VideoCallApiService();
+  Timer? _pollTimer;
+  bool _isRefreshing = false;
 
   @override
-  Future<List<PatientPeer>> build() => _load();
+  Future<List<PatientPeer>> build() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _refreshSilently(),
+    );
+    ref.onDispose(() {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    });
+    return _load();
+  }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(_load);
+  }
+
+  Future<void> _refreshSilently() async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    final previous = state.whenOrNull(data: (patients) => patients);
+    final next = await AsyncValue.guard(_load);
+    if (next.hasError && previous != null) {
+      state = AsyncData(previous);
+    } else {
+      state = next;
+    }
+    _isRefreshing = false;
   }
 
   Future<List<PatientPeer>> _load() async {

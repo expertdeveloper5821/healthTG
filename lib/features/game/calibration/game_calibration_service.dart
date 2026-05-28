@@ -47,7 +47,7 @@ class GamePosePoint {
 class GameCalibrationService extends ChangeNotifier {
   GameCalibrationService({
     this.requireStableCountdown = true,
-    this.requiredStableSeconds = 30,
+    this.requiredStableSeconds = 5,
     this.monitorMode = false,
   });
 
@@ -89,7 +89,7 @@ class GameCalibrationService extends ChangeNotifier {
 
   List<GamePosePoint> posePoints = const [];
   Size? poseImageSize;
-  double countdownRemaining = 30;
+  double countdownRemaining = 5;
   double progress = 0;
 
   DateTime? _validSince;
