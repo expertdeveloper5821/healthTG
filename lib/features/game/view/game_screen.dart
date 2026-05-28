@@ -76,7 +76,8 @@ class GameScreen extends ConsumerWidget {
             RushScreen(isPaused: isPaused),
       },
       {
-         "title": "",
+        "title": "Whiteboard",
+        "icon": Icons.draw_outlined,
         "color": const Color(0xFF9C27B0),
         "requiresCalibration": false,
         "usesGameCamera": false,
