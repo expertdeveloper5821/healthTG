@@ -104,6 +104,7 @@ class SquatController extends Notifier<SquatGameState> {
   bool _isDisposed = false;
   int _missedReliableFrames = 0;
 
+
   // Allow ~2.5 s of invisible pose before resetting the motion state.
   // The rep count is NEVER touched by this; only stuck states are cleared.
   static const int _maxMissedReliableFrames = 25;

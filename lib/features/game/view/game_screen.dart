@@ -1,3 +1,4 @@
+import 'package:demo_p/features/game/voice_typing_game/screens/vtg_screen.dart';
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
 import 'package:demo_p/features/game/whitepad/screens/whiteboard_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_screen.dart';
@@ -64,6 +65,7 @@ class GameScreen extends ConsumerWidget {
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             SquatGameScreen(isPaused: isPaused),
       },
+     
       {
         "title": "Rush",
         "icon": Icons.traffic,
@@ -74,31 +76,23 @@ class GameScreen extends ConsumerWidget {
             RushScreen(isPaused: isPaused),
       },
       {
-        "title": "Whiteboard",
-        "icon": Icons.draw_outlined,
         "color": const Color(0xFF9C27B0),
         "requiresCalibration": false,
         "usesGameCamera": false,
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
             const WhiteboardScreen(),
       },
+      
       {
-        "title": "Snake Game",
-        "icon": Icons.gamepad,
-        "color": Colors.teal,
+        "title": "Voice & Typing",
+        "icon": Icons.mic_rounded,
+        "color": Colors.indigo,
         "requiresCalibration": false,
         "usesGameCamera": false,
         "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
-            const ComingSoonScreen(),
+            const VtgScreen(),
       },
-      {
-        "title": "Typing Game",
-        "icon": Icons.keyboard,
-        "color": Colors.indigo,
-        "usesGameCamera": false,
-        "builder": (bool isPaused, GameCalibrationService? safetyMonitor) =>
-            const ComingSoonScreen(),
-      },
+      
     ];
 
     return Scaffold(
