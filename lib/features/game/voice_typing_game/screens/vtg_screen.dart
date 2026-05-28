@@ -106,7 +106,12 @@ class VtgScreen extends ConsumerWidget {
 
                 // ── Mic permission banner ─────────────────────────────────────
                 if (state.mode == GameMode.voice && !state.hasMicPermission)
-                  _MicBanner(onAllow: notifier.toggleMonitoring),
+                  _MicBanner(
+                    permanentlyDenied: state.micPermPermanentlyDenied,
+                    onAllow: state.micPermPermanentlyDenied
+                        ? notifier.openMicSettings
+                        : notifier.toggleMonitoring,
+                  ),
 
                 // ── Settings panel (collapsible) ─────────────────────────────
                 AnimatedSwitcher(
@@ -182,7 +187,8 @@ class VtgScreen extends ConsumerWidget {
 
 class _MicBanner extends StatelessWidget {
   final VoidCallback onAllow;
-  const _MicBanner({required this.onAllow});
+  final bool permanentlyDenied;
+  const _MicBanner({required this.onAllow, this.permanentlyDenied = false});
 
   @override
   Widget build(BuildContext context) {
@@ -209,9 +215,9 @@ class _MicBanner extends StatelessWidget {
             ),
             GestureDetector(
               onTap: onAllow,
-              child: const Text(
-                'Allow',
-                style: TextStyle(
+              child: Text(
+                permanentlyDenied ? 'Open Settings' : 'Allow',
+                style: const TextStyle(
                   color: Color(0xFFFF7043),
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

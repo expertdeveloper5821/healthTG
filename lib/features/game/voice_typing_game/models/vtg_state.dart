@@ -49,6 +49,7 @@ class VtgState {
   final bool showSettings;
   final VtgSettings settings;
   final bool hasMicPermission;
+  final bool micPermPermanentlyDenied;
 
   const VtgState({
     required this.mode,
@@ -59,6 +60,7 @@ class VtgState {
     required this.showSettings,
     required this.settings,
     required this.hasMicPermission,
+    this.micPermPermanentlyDenied = false,
   });
 
   factory VtgState.initial() => const VtgState(
@@ -70,6 +72,7 @@ class VtgState {
     showSettings: false,
     settings: VtgSettings(),
     hasMicPermission: false,
+    micPermPermanentlyDenied: false,
   );
 
   // ── Derived helpers ────────────────────────────────────────────────────────
@@ -95,6 +98,7 @@ class VtgState {
     bool? showSettings,
     VtgSettings? settings,
     bool? hasMicPermission,
+    bool? micPermPermanentlyDenied,
   }) => VtgState(
     mode: mode ?? this.mode,
     isMonitoring: isMonitoring ?? this.isMonitoring,
@@ -104,5 +108,6 @@ class VtgState {
     showSettings: showSettings ?? this.showSettings,
     settings: settings ?? this.settings,
     hasMicPermission: hasMicPermission ?? this.hasMicPermission,
+    micPermPermanentlyDenied: micPermPermanentlyDenied ?? this.micPermPermanentlyDenied,
   );
 }

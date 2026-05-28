@@ -19,10 +19,13 @@ class MicrophoneService {
 
   Stream<double> get smoothedDbStream => _controller.stream;
 
-  Future<bool> requestPermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
+  Future<PermissionStatus> requestPermission() async {
+    final current = await Permission.microphone.status;
+    if (current.isPermanentlyDenied) return current;
+    return Permission.microphone.request();
   }
+
+  Future<void> openSettings() => openAppSettings();
 
   Future<void> start() async {
     if (_disposed) return;

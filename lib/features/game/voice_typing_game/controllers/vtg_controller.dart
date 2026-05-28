@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/graph_sample.dart';
 import '../models/vtg_enums.dart';
@@ -38,8 +39,11 @@ class VtgController extends Notifier<VtgState> {
   // ── Permission ─────────────────────────────────────────────────────────────
 
   Future<void> _initPermission() async {
-    final granted = await _mic.requestPermission();
-    _safeSet((s) => s.copyWith(hasMicPermission: granted));
+    final status = await _mic.requestPermission();
+    _safeSet((s) => s.copyWith(
+      hasMicPermission: status.isGranted,
+      micPermPermanentlyDenied: status.isPermanentlyDenied,
+    ));
   }
 
   // ── Mode ───────────────────────────────────────────────────────────────────
@@ -70,9 +74,12 @@ class VtgController extends Notifier<VtgState> {
 
   Future<void> _startMonitoring() async {
     if (state.mode == GameMode.voice) {
-      final granted = await _mic.requestPermission();
-      _safeSet((s) => s.copyWith(hasMicPermission: granted));
-      if (!granted) return;
+      final status = await _mic.requestPermission();
+      _safeSet((s) => s.copyWith(
+        hasMicPermission: status.isGranted,
+        micPermPermanentlyDenied: status.isPermanentlyDenied,
+      ));
+      if (!status.isGranted) return;
       try {
         await _mic.start();
         _micSub = _mic.smoothedDbStream.listen((db) => _latestMicDb = db);
@@ -103,6 +110,8 @@ class VtgController extends Notifier<VtgState> {
   }
 
   // ── Settings ───────────────────────────────────────────────────────────────
+
+  Future<void> openMicSettings() => _mic.openSettings();
 
   void toggleSettings() =>
       _safeSet((s) => s.copyWith(showSettings: !s.showSettings));
