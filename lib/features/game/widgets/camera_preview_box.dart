@@ -74,13 +74,13 @@ class _CameraPreviewBoxState extends State<CameraPreviewBox> {
                 useCameraTransform: Platform.isAndroid,
               ),
             ),
-            if (safetyMonitor != null && safetyMonitor.posePoints.isNotEmpty)
-              CustomPaint(
-                painter: PoseOverlayPainter(
-                  points: safetyMonitor.posePoints,
-                  color: safetyMonitor.skeletonColor,
-                ),
-              ),
+            // if (safetyMonitor != null && safetyMonitor.posePoints.isNotEmpty)
+            //   CustomPaint(
+            //     painter: PoseOverlayPainter(
+            //       points: safetyMonitor.posePoints,
+            //       color: safetyMonitor.skeletonColor,
+            //     ),
+            //   ),
 
             // Label overlay
             Positioned(

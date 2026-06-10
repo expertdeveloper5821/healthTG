@@ -17,7 +17,6 @@ class _HealthScreenState extends State<HealthScreen> {
   bool _isFetching = false;
   bool _dataLoaded = false;
 
-  // All health data
   int _steps = 0;
   double _heartRate = 0;
   double _activeCalories = 0;
@@ -35,7 +34,7 @@ class _HealthScreenState extends State<HealthScreen> {
   double _respiratoryRate = 0;
   double _water = 0;
 
-  // ================= ACTIVITY PERMISSION =================
+
   Future<bool> requestActivityPermission() async {
     var status = await Permission.activityRecognition.status;
     if (status.isGranted) return true;
@@ -48,7 +47,7 @@ class _HealthScreenState extends State<HealthScreen> {
     return finalStatus.isGranted;
   }
 
-  // ================= FETCH DATA =================
+
   Future<void> fetchData() async {
     if (_isFetching) return;
     _isFetching = true;
@@ -109,7 +108,7 @@ class _HealthScreenState extends State<HealthScreen> {
     _isFetching = false;
   }
 
-  // ================= UI HELPERS =================
+
 
   Widget _buildHeader() {
     return Container(
@@ -379,7 +378,6 @@ class _HealthScreenState extends State<HealthScreen> {
     return "Obese";
   }
 
-  // ================= BUILD =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -454,7 +452,7 @@ class _HealthScreenState extends State<HealthScreen> {
             if (_permissionDenied) ...[
               const SizedBox(height: 16),
               const Text(
-                "❌ Permission not granted.\nPlease allow Health Connect access.",
+                " Permission not granted.\nPlease allow Health Connect access.",
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.red),
               ),
@@ -641,7 +639,6 @@ class _HealthScreenState extends State<HealthScreen> {
 
                     const SizedBox(height: 30),
 
-                    // Refresh button
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(

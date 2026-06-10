@@ -12,7 +12,7 @@ class PeerJSSignalingService {
   Timer? _heartbeatTimer;
   bool _disposed = false;
 
-  // ── Callbacks ─────────────────────────────────────────────────────────────
+
   Function(
     String src,
     RTCSessionDescription sdp,
@@ -34,7 +34,7 @@ class PeerJSSignalingService {
     String peerAuthToken,
     String sessionCookie,
   ) {
-    // Clean up any existing connection before opening a new one
+    
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _sub?.cancel();
@@ -184,7 +184,7 @@ class PeerJSSignalingService {
     }
   }
 
-  // ── Outbound ─────────────────────────────────────────────────────────────
+ 
 
   void sendOffer(
     String dst,
