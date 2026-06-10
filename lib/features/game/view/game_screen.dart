@@ -1,5 +1,6 @@
 import 'package:demo_p/features/game/voice_typing_game/screens/vtg_screen.dart';
 import 'package:demo_p/features/game/Wipe%20Game/view/wipe_game_screen.dart';
+import 'package:demo_p/features/screencast/widgets/cast_fab.dart';
 import 'package:demo_p/features/game/whitepad/screens/whiteboard_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_screen.dart';
 import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
@@ -99,6 +100,7 @@ class GameScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D1A),
+      floatingActionButton: const CastFab(),
       appBar: AppBar(
         backgroundColor: const Color(0xFF16162A),
         elevation: 0,

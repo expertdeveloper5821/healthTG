@@ -5,23 +5,93 @@ import 'package:demo_p/features/game/calibration/game_calibration_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
-class CalibrationCameraPanel extends StatelessWidget {
+class CalibrationCameraPanel extends StatefulWidget {
   final GameCalibrationService service;
 
   const CalibrationCameraPanel({super.key, required this.service});
 
   @override
+  State<CalibrationCameraPanel> createState() =>
+      _CalibrationCameraPanelState();
+}
+
+class _CalibrationCameraPanelState extends State<CalibrationCameraPanel>
+    with SingleTickerProviderStateMixin {
+
+  late final AnimationController _poseAnim;
+
+  List<GamePosePoint> _fromPoints = const [];
+  List<GamePosePoint> _toPoints = const [];
+  Color _fromColor = const Color(0xFFFF5C7A);
+  Color _toColor = const Color(0xFFFF5C7A);
+  Size? _imageSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _poseAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
+    widget.service.addListener(_onServiceUpdate);
+  }
+
+  @override
+  void dispose() {
+    widget.service.removeListener(_onServiceUpdate);
+    _poseAnim.dispose();
+    super.dispose();
+  }
+
+  void _onServiceUpdate() {
+    if (!mounted) return;
+    final newPoints = widget.service.posePoints;
+    final newColor = widget.service.skeletonColor;
+    final newSize = widget.service.poseImageSize;
+
+    setState(() {
+      _fromPoints = _lerpedPoints(_poseAnim.value);
+      _fromColor = Color.lerp(_fromColor, _toColor, _poseAnim.value) ?? _toColor;
+      _toPoints = newPoints;
+      _toColor = newColor;
+      _imageSize = newSize;
+    });
+    _poseAnim.forward(from: 0);
+  }
+
+  List<GamePosePoint> _lerpedPoints(double t) {
+    if (_fromPoints.isEmpty || t >= 1.0) return _toPoints;
+    if (_toPoints.isEmpty) return const [];
+
+    final fromMap = <PoseLandmarkType, Offset>{
+      for (final p in _fromPoints) p.type: p.position,
+    };
+
+
+    return _toPoints.map((target) {
+      final from = fromMap[target.type] ?? target.position;
+      return GamePosePoint(
+        type: target.type,
+        position: Offset.lerp(from, target.position, t)!,
+      );
+    }).toList(growable: false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final controller = service.controller;
+    final controller = widget.service.controller;
+    final isReady = widget.service.isInitialized && controller != null;
 
     return AspectRatio(
       aspectRatio: 3 / 4,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: const Color(0xFF151527),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: service.allRulesValid
+            color: widget.service.allRulesValid
                 ? const Color(0xFF45D483)
                 : const Color(0xFFFF9800),
             width: 1.5,
@@ -32,51 +102,64 @@ class CalibrationCameraPanel extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (service.isInitialized && controller != null)
+              if (isReady)
                 FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
-width: controller.value.previewSize!.height,
-height: controller.value.previewSize!.width,
+                    width: controller.value.previewSize!.height,
+                    height: controller.value.previewSize!.width,
                     child: CameraPreview(controller),
                   ),
                 )
               else
                 const _CameraPlaceholder(),
-              CustomPaint(
-                size: Size.infinite,
-                painter: PoseOverlayPainter(
-                  points: service.posePoints,
-                  color: service.skeletonColor,
-                  imageSize: service.poseImageSize,
-                ),
+
+    
+              AnimatedBuilder(
+                animation: _poseAnim,
+                builder: (context, _) {
+                  final t = Curves.easeOutCubic.transform(_poseAnim.value);
+                  final color =
+                      Color.lerp(_fromColor, _toColor, t) ?? _toColor;
+                  return CustomPaint(
+                    size: Size.infinite,
+                    painter: PoseOverlayPainter(
+                      points: _lerpedPoints(t),
+                      color: color,
+                      imageSize: _imageSize,
+                    ),
+                  );
+                },
               ),
+
+
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0x66000000),
+                      Color(0x55000000),
                       Colors.transparent,
-                      Color(0x80000000),
+                      Color(0x88000000),
                     ],
                   ),
                 ),
               ),
+
               Positioned(
                 left: 14,
                 right: 14,
                 bottom: 54,
-                child: DistancePill(state: service.distanceState),
+                child: DistancePill(state: widget.service.distanceState),
               ),
               Positioned(
                 left: 14,
                 right: 14,
                 bottom: 14,
                 child: SkeletonStatusPill(
-                  text: service.skeletonStatus,
-                  color: service.skeletonColor,
+                  text: widget.service.skeletonStatus,
+                  color: widget.service.skeletonColor,
                 ),
               ),
             ],
@@ -185,6 +268,7 @@ class CalibrationWarningPanel extends StatelessWidget {
   }
 }
 
+
 class CalibrationStatusPanel extends StatelessWidget {
   final List<GameCalibrationRule> rules;
 
@@ -198,9 +282,9 @@ class CalibrationStatusPanel extends StatelessWidget {
       decoration: _panelDecoration(),
       child: Column(
         children: [
-          for (final rule in rules) ...[
-            _RuleRow(rule: rule),
-            if (rule != rules.last) const SizedBox(height: 10),
+          for (int i = 0; i < rules.length; i++) ...[
+            _RuleRow(rule: rules[i]),
+            if (i < rules.length - 1) const SizedBox(height: 10),
           ],
         ],
       ),
@@ -272,8 +356,8 @@ class GameplayWarningToast extends StatelessWidget {
                           width: 34,
                           height: 34,
                           decoration: BoxDecoration(
-                            color:
-                                const Color(0xFFFFC857).withValues(alpha: 0.16),
+                            color: const Color(0xFFFFC857)
+                                .withValues(alpha: 0.16),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -324,7 +408,9 @@ class DistancePill extends StatelessWidget {
 
     return Align(
       alignment: Alignment.center,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.58),
@@ -366,7 +452,7 @@ class SkeletonStatusPill extends StatelessWidget {
     return Align(
       alignment: Alignment.center,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -375,24 +461,26 @@ class SkeletonStatusPill extends StatelessWidget {
           border: Border.all(color: color.withValues(alpha: 0.58)),
           boxShadow: [
             BoxShadow(
-              color: color.withValues(alpha: 0.18),
-              blurRadius: 12,
+              color: color.withValues(alpha: 0.20),
+              blurRadius: 14,
               spreadRadius: 1,
             ),
           ],
         ),
-        child: Text(
-          text,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 220),
           style: TextStyle(
             color: color,
             fontSize: 12,
             fontWeight: FontWeight.w900,
           ),
+          child: Text(text),
         ),
       ),
     );
   }
 }
+
 
 class PoseOverlayPainter extends CustomPainter {
   final List<GamePosePoint> points;
@@ -405,15 +493,35 @@ class PoseOverlayPainter extends CustomPainter {
     this.imageSize,
   });
 
+  static const _connections = [
+    [PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder],
+    [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip],
+    [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip],
+    [PoseLandmarkType.leftHip, PoseLandmarkType.rightHip],
+    [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow],
+    [PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist],
+    [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow],
+    [PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist],
+    [PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee],
+    [PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle],
+    [PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee],
+    [PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle],
+    [PoseLandmarkType.nose, PoseLandmarkType.leftShoulder],
+    [PoseLandmarkType.nose, PoseLandmarkType.rightShoulder],
+  ];
+
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
 
-    final byType = {for (final point in points) point.type: point.position};
+    final byType = <PoseLandmarkType, Offset>{};
+    for (final p in points) {
+      byType[p.type] = _scale(p.position, size);
+    }
 
     final glowPaint = Paint()
-      ..color = color.withValues(alpha: 0.18)
-      ..strokeWidth = 8
+      ..color = color.withValues(alpha: 0.20)
+      ..strokeWidth = 9
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
@@ -421,89 +529,66 @@ class PoseOverlayPainter extends CustomPainter {
       ..color = color.withValues(alpha: 0.94)
       ..strokeWidth = 3.2
       ..strokeCap = StrokeCap.round;
-    final dotPaint = Paint()..style = PaintingStyle.fill;
 
-    const connections = [
-      [PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder],
-      [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip],
-      [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip],
-      [PoseLandmarkType.leftHip, PoseLandmarkType.rightHip],
-      [PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow],
-      [PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist],
-      [PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow],
-      [PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist],
-      [PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee],
-      [PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle],
-      [PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee],
-      [PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle],
-      [PoseLandmarkType.nose, PoseLandmarkType.leftShoulder],
-      [PoseLandmarkType.nose, PoseLandmarkType.rightShoulder],
-    ];
-
-    for (final connection in connections) {
-      final from = byType[connection[0]];
-      final to = byType[connection[1]];
+    // Draw connections.
+    for (final conn in _connections) {
+      final from = byType[conn[0]];
+      final to = byType[conn[1]];
       if (from == null || to == null) continue;
-      final fromOffset = _scale(from, size);
-      final toOffset = _scale(to, size);
-      canvas.drawLine(fromOffset, toOffset, glowPaint);
-      canvas.drawLine(fromOffset, toOffset, linePaint);
+      canvas.drawLine(from, to, glowPaint);
+      canvas.drawLine(from, to, linePaint);
     }
 
-    for (final point in points) {
-      final offset = _scale(point.position, size);
+    // Draw landmark dots.
+    final dotPaint = Paint()..style = PaintingStyle.fill;
+    for (final entry in byType.entries) {
+      final offset = entry.value;
       dotPaint.color = color.withValues(alpha: 0.28);
       canvas.drawCircle(offset, 7, dotPaint);
       dotPaint.color = color;
-      canvas.drawCircle(offset, 4.1, dotPaint);
+      canvas.drawCircle(offset, 4.2, dotPaint);
       dotPaint.color = Colors.white;
       canvas.drawCircle(offset, 2.1, dotPaint);
     }
   }
-Offset _scale(Offset normalized, Size size) {
-  final sourceSize = imageSize;
 
-  if (sourceSize == null ||
-      sourceSize.width <= 0 ||
-      sourceSize.height <= 0) {
+ 
+  Offset _scale(Offset normalized, Size size) {
+    final src = imageSize;
+
+    if (src == null || src.width <= 0 || src.height <= 0) {
+      return Offset(normalized.dx * size.width, normalized.dy * size.height);
+    }
+
+    // After the 90° display rotation, logical image width = raw height,
+    // logical image height = raw width.
+    final logicalW = src.height;
+    final logicalH = src.width;
+
+    final scale = max(size.width / logicalW, size.height / logicalH);
+    final fittedW = logicalW * scale;
+    final fittedH = logicalH * scale;
+
+    final cropX = (fittedW - size.width) / 2;
+    final cropY = (fittedH - size.height) / 2;
+
+    // Front camera feed is horizontally mirrored.
+    final mirroredX = 1.0 - normalized.dx;
+
     return Offset(
-      normalized.dx * size.width,
-      normalized.dy * size.height,
+      mirroredX * fittedW - cropX -50 ,
+      normalized.dy * fittedH - cropY -40,
     );
   }
 
-  final imageWidth = sourceSize.height;
-  final imageHeight = sourceSize.width;
-
-  final scale = max(
-    size.width / imageWidth,
-    size.height / imageHeight,
-  );
-
-  final fittedWidth = imageWidth * scale;
-  final fittedHeight = imageHeight * scale;
-
-  final offsetX = (fittedWidth - size.width) / 2;
-  final offsetY = (fittedHeight - size.height) / 2;
-
-  final mirroredX = 1 - normalized.dx;
-
-  // tiny alignment compensation
-  final horizontalCorrection = size.width * -0.2;
-final verticalCorrection = size.height * -0.09;
-  return Offset(
-  mirroredX * fittedWidth - offsetX + horizontalCorrection,
-  normalized.dy * fittedHeight - offsetY + verticalCorrection,
-);
-}
-
   @override
-  bool shouldRepaint(covariant PoseOverlayPainter oldDelegate) {
-    return oldDelegate.points != points ||
-        oldDelegate.color != color ||
-        oldDelegate.imageSize != imageSize;
+  bool shouldRepaint(covariant PoseOverlayPainter old) {
+    return !identical(old.points, points) ||
+        old.color != color ||
+        old.imageSize != imageSize;
   }
 }
+
 
 class _RuleRow extends StatelessWidget {
   final GameCalibrationRule rule;
@@ -517,7 +602,8 @@ class _RuleRow extends StatelessWidget {
 
     return Row(
       children: [
-        Container(
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           width: 28,
           height: 28,
           decoration: BoxDecoration(

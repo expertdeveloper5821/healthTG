@@ -38,12 +38,57 @@ class GamePosePoint {
   final PoseLandmarkType type;
   final Offset position;
 
-  const GamePosePoint({
-    required this.type,
-    required this.position,
-  });
+  const GamePosePoint({required this.type, required this.position});
 }
 
+// ---------------------------------------------------------------------------
+// Velocity-aware exponential moving average smoother (one instance per landmark).
+// At low velocity (stillness) alpha is small → heavy smoothing.
+// At high velocity (fast movement) alpha grows → more responsive tracking.
+// Low confidence landmarks get extra damping to suppress noisy detections.
+// ---------------------------------------------------------------------------
+class _LandmarkSmoother {
+  final Map<PoseLandmarkType, _SmoothState> _state = {};
+
+  /// Process a new raw (normalised [0,1]) observation.
+  Offset process(
+    PoseLandmarkType type,
+    double nx,
+    double ny,
+    double likelihood,
+  ) {
+    final prev = _state[type];
+    if (prev == null) {
+      _state[type] = _SmoothState(nx, ny);
+      return Offset(nx, ny);
+    }
+
+    final dx = nx - prev.x;
+    final dy = ny - prev.y;
+    final speed = sqrt(dx * dx + dy * dy);
+
+    // Velocity boost lets the filter track fast motion without lag.
+    final velocityBoost = (speed * 7.0).clamp(0.0, 0.48);
+    final confidenceFactor = likelihood.clamp(0.45, 1.0);
+    final alpha = ((0.18 + velocityBoost) * confidenceFactor).clamp(0.10, 0.72);
+
+    final sx = prev.x + dx * alpha;
+    final sy = prev.y + dy * alpha;
+    _state[type] = _SmoothState(sx, sy);
+    return Offset(sx, sy);
+  }
+
+  void reset() => _state.clear();
+}
+
+class _SmoothState {
+  final double x, y;
+  const _SmoothState(this.x, this.y);
+}
+
+// ---------------------------------------------------------------------------
+// GameCalibrationService
+// ---------------------------------------------------------------------------
 class GameCalibrationService extends ChangeNotifier {
   GameCalibrationService({
     this.requireStableCountdown = true,
@@ -63,6 +108,8 @@ class GameCalibrationService extends ChangeNotifier {
       mode: PoseDetectionMode.stream,
     ),
   );
+
+  final _LandmarkSmoother _smoother = _LandmarkSmoother();
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSub;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSub;
@@ -94,7 +141,7 @@ class GameCalibrationService extends ChangeNotifier {
 
   DateTime? _validSince;
   DateTime? _lastPoseFrameAt;
-  Offset? _lastBodyAnchor;
+  Offset? _smoothedBodyAnchor;
   Offset? _stableBodyAnchor;
   double _phoneMotionScore = 0;
   double? _lastAccelMagnitude;
@@ -103,11 +150,52 @@ class GameCalibrationService extends ChangeNotifier {
   bool _bodyAngleAlmost = false;
   bool _bodyMovementAlmost = false;
 
+  // Temporal-consistency counters — prevent single-frame state flips.
+  int _consecutiveFullBodyFrames = 0;
+  int _consecutiveNoBodyFrames = 0;
+  int _invalidTickCount = 0;
+
+  // Smoothed ratio history (circular buffers).
+  final List<double> _bodyRatioHistory = [];
+  final List<double> _shoulderRatioHistory = [];
+
+  // Distance state hysteresis (majority vote over recent frames).
+  final List<GameDistanceState> _distanceStateBuffer = [];
+
+  // ── Required landmark set ────────────────────────────────────────────────
+  static const List<PoseLandmarkType> _requiredTypes = [
+    PoseLandmarkType.nose,
+    PoseLandmarkType.leftShoulder,
+    PoseLandmarkType.rightShoulder,
+    PoseLandmarkType.leftHip,
+    PoseLandmarkType.rightHip,
+    PoseLandmarkType.leftKnee,
+    PoseLandmarkType.rightKnee,
+    PoseLandmarkType.leftAnkle,
+    PoseLandmarkType.rightAnkle,
+  ];
+
+  // ── Tuning constants ─────────────────────────────────────────────────────
   static const double _minLandmarkLikelihood = 0.45;
-  static const Duration _poseFrameInterval = Duration(milliseconds: 150);
-  static const Duration _poseFreshness = Duration(milliseconds: 1300);
+
+  // Feed smoother even for low-confidence detections so it warms up.
+  static const double _smootherFeedThreshold = 0.15;
+
+  // Faster frame interval → smoother skeleton updates.
+  static const Duration _poseFrameInterval = Duration(milliseconds: 80);
+  static const Duration _poseFreshness = Duration(milliseconds: 1500);
   static const Duration _tickRate = Duration(milliseconds: 250);
 
+  // Consecutive-frame gates for body visibility.
+  static const int _kActivationFrames = 2;
+  static const int _kDeactivationFrames = 4;
+
+ 
+  static const int _kDistanceBufferSize = 6;
+  static const int _kRatioHistorySize = 5;
+
+  // Grace period before countdown resets (in ticks).
+  static const int _kCountdownResetGrace = 2;
   bool get allRulesValid =>
       fullBodyVisible &&
       properDistance &&
@@ -115,13 +203,11 @@ class GameCalibrationService extends ChangeNotifier {
       humanStable &&
       activeIssue != GameSafetyIssue.cameraUnavailable;
 
-  Color get skeletonColor {
-    return switch (skeletonQuality) {
-      GameSkeletonQuality.perfect => const Color(0xFF45D483),
-      GameSkeletonQuality.almost => const Color(0xFFFFC857),
-      GameSkeletonQuality.adjust => const Color(0xFFFF5C7A),
-    };
-  }
+  Color get skeletonColor => switch (skeletonQuality) {
+        GameSkeletonQuality.perfect => const Color(0xFF45D483),
+        GameSkeletonQuality.almost => const Color(0xFFFFC857),
+        GameSkeletonQuality.adjust => const Color(0xFFFF5C7A),
+      };
 
   List<GameCalibrationRule> get rules => [
         GameCalibrationRule(
@@ -130,10 +216,12 @@ class GameCalibrationService extends ChangeNotifier {
           isValid: fullBodyVisible,
         ),
         GameCalibrationRule(
-          validText: 'Proper distance',
+          validText: monitorMode ? 'Proper distance' : 'Proper distance',
           invalidText: distanceState == GameDistanceState.tooFar
               ? 'Please come slightly closer.'
-              : 'Please move at least 3 feet away from the phone.',
+              : monitorMode
+                  ? 'Please move slightly back.'
+                  : 'Please keep about 95 cm from the phone.',
           isValid: properDistance,
         ),
         GameCalibrationRule(
@@ -150,6 +238,7 @@ class GameCalibrationService extends ChangeNotifier {
         ),
       ];
 
+  // ── Initialization ────────────────────────────────────────────────────────
   Future<void> initialize() async {
     if (isInitializing || isInitialized || _isDisposed) return;
 
@@ -165,7 +254,7 @@ class GameCalibrationService extends ChangeNotifier {
       }
 
       final front = cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.front,
+        (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
@@ -186,7 +275,6 @@ class GameCalibrationService extends ChangeNotifier {
       await controller!.startImageStream(_processCameraImage);
       _startSensors();
       _startTicker();
-
       isInitialized = true;
     } catch (e) {
       activeIssue = GameSafetyIssue.cameraUnavailable;
@@ -233,7 +321,7 @@ class GameCalibrationService extends ChangeNotifier {
           ? 0.0
           : (magnitude - _lastAccelMagnitude!).abs();
       _lastAccelMagnitude = magnitude;
-      _updatePhoneMotion(delta / 1.4);
+      _updatePhoneMotion(delta / 1.2);
     });
 
     _gyroscopeSub = gyroscopeEventStream(
@@ -241,15 +329,19 @@ class GameCalibrationService extends ChangeNotifier {
     ).listen((event) {
       final magnitude =
           sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
-      _updatePhoneMotion(magnitude / 0.55);
+      _updatePhoneMotion(magnitude / 0.45);
     });
   }
 
   void _updatePhoneMotion(double latestScore) {
-    _phoneMotionScore = _phoneMotionScore * 0.82 + latestScore * 0.18;
+
+    _phoneMotionScore = _phoneMotionScore * 0.75 + latestScore * 0.25;
     final wasStable = phoneStable;
-    phoneStable = _phoneMotionScore < 1.0;
-    if (wasStable != phoneStable) _resetCountdown();
+    phoneStable = _phoneMotionScore < 0.9;
+
+
+    if (wasStable && !phoneStable) _resetCountdown();
+
     _updateSkeletonQuality();
     _updateMessage();
     _scheduleNotify();
@@ -266,24 +358,21 @@ class GameCalibrationService extends ChangeNotifier {
     final now = DateTime.now();
     if (_lastPoseFrameAt == null ||
         now.difference(_lastPoseFrameAt!) > _poseFreshness) {
-      fullBodyVisible = false;
-      properDistance = false;
-      humanStable = false;
-      _bodyAnglePerfect = false;
-      _bodyAngleAlmost = false;
-      _bodyMovementAlmost = false;
-      distanceState = GameDistanceState.unknown;
-      _stableBodyAnchor = null;
-      _lastBodyAnchor = null;
-      _updateSkeletonQuality();
+      _clearBodyState();
     }
 
     if (!allRulesValid) {
-      _resetCountdown();
+      _invalidTickCount++;
+
+      if (_invalidTickCount >= _kCountdownResetGrace) {
+        _resetCountdown();
+      }
       _updateMessage();
       notifyListeners();
       return;
     }
+
+    _invalidTickCount = 0;
 
     if (!requireStableCountdown) {
       message = 'Monitoring active';
@@ -309,6 +398,7 @@ class GameCalibrationService extends ChangeNotifier {
     notifyListeners();
   }
 
+
   Future<void> _processCameraImage(CameraImage image) async {
     if (_isDisposed || isProcessingFrame || controller == null) return;
     if (!(controller?.value.isStreamingImages ?? false)) return;
@@ -319,7 +409,8 @@ class GameCalibrationService extends ChangeNotifier {
       return;
     }
 
-    final inputImage = _inputImageFromCameraImage(image, controller!.description);
+    final inputImage =
+        _inputImageFromCameraImage(image, controller!.description);
     if (inputImage == null) return;
 
     isProcessingFrame = true;
@@ -365,190 +456,148 @@ class GameCalibrationService extends ChangeNotifier {
     }
   }
 
-  InputImage? _inputImageFromCameraImage(
-    CameraImage image,
-    CameraDescription camera,
-  ) {
-    if (image.planes.isEmpty) return null;
-
-    final rotation =
-        InputImageRotationValue.fromRawValue(camera.sensorOrientation);
-    if (rotation == null) return null;
-
-    final format = _inputImageFormat(image);
-    if (format == null) return null;
-
-    final bytes = image.planes.length == 1
-        ? image.planes.first.bytes
-        : Uint8List.fromList(
-            image.planes.expand((plane) => plane.bytes).toList(),
-          );
-
-    return InputImage.fromBytes(
-      bytes: bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: image.planes.first.bytesPerRow,
-      ),
-    );
-  }
-
-  InputImageFormat? _inputImageFormat(CameraImage image) {
-    if (Platform.isIOS) return InputImageFormat.bgra8888;
-    if (image.format.group == ImageFormatGroup.nv21) {
-      return InputImageFormat.nv21;
-    }
-    if (image.format.group == ImageFormatGroup.yuv420) {
-      return InputImageFormat.yuv_420_888;
-    }
-    return InputImageFormatValue.fromRawValue(image.format.raw);
-  }
 
   void _evaluatePose(List<Pose> poses, int width, int height) {
     poseImageSize = Size(width.toDouble(), height.toDouble());
 
     if (poses.isEmpty) {
-      fullBodyVisible = false;
-      properDistance = false;
-      humanStable = false;
-      posePoints = const [];
-      _bodyAnglePerfect = false;
-      _bodyAngleAlmost = false;
-      _bodyMovementAlmost = false;
-      _resetCountdown();
+      _consecutiveFullBodyFrames = 0;
+      _consecutiveNoBodyFrames++;
+      if (_consecutiveNoBodyFrames >= _kDeactivationFrames) {
+        _clearBodyState();
+      }
       _updateSkeletonQuality();
       return;
     }
 
-    final requiredTypes = const [
-      PoseLandmarkType.nose,
-      PoseLandmarkType.leftShoulder,
-      PoseLandmarkType.rightShoulder,
-      PoseLandmarkType.leftHip,
-      PoseLandmarkType.rightHip,
-      PoseLandmarkType.leftKnee,
-      PoseLandmarkType.rightKnee,
-      PoseLandmarkType.leftAnkle,
-      PoseLandmarkType.rightAnkle,
-    ];
+    _consecutiveNoBodyFrames = 0;
 
-    final pose = _bestPoseForCalibration(poses, requiredTypes);
-    final visibleRequired = requiredTypes
-        .map((type) => pose.landmarks[type])
-        .whereType<PoseLandmark>()
-        .where(_isReliable)
-        .toList(growable: false);
+    final pose = _bestPoseForCalibration(poses, _requiredTypes);
 
-    fullBodyVisible = visibleRequired.length == requiredTypes.length;
-    posePoints = pose.landmarks.entries
-        .where((entry) => _isReliable(entry.value))
+  
+    final smoothed = <PoseLandmarkType, Offset>{};
+    for (final entry in pose.landmarks.entries) {
+      final lm = entry.value;
+      if (lm.likelihood < _smootherFeedThreshold) continue;
+      final s = _smoother.process(
+        entry.key,
+        lm.x / width,
+        lm.y / height,
+        lm.likelihood,
+      );
+      if (lm.likelihood >= _minLandmarkLikelihood) {
+        smoothed[entry.key] = s;
+      }
+    }
+
+   
+    posePoints = smoothed.entries
         .map(
-          (entry) => GamePosePoint(
-            type: entry.key,
+          (e) => GamePosePoint(
+            type: e.key,
             position: Offset(
-              (entry.value.x / width).clamp(0.0, 1.0).toDouble(),
-              (entry.value.y / height).clamp(0.0, 1.0).toDouble(),
+              e.value.dx.clamp(0.0, 1.0),
+              e.value.dy.clamp(0.0, 1.0),
             ),
           ),
         )
         .toList(growable: false);
 
+    final allRequired = _requiredTypes.every((t) => smoothed.containsKey(t));
+    if (allRequired) {
+      _consecutiveFullBodyFrames =
+          (_consecutiveFullBodyFrames + 1).clamp(0, _kActivationFrames + 1);
+      if (_consecutiveFullBodyFrames >= _kActivationFrames) {
+        fullBodyVisible = true;
+      }
+    } else {
+      _consecutiveFullBodyFrames = 0;
+      _consecutiveNoBodyFrames++;
+      if (_consecutiveNoBodyFrames >= _kDeactivationFrames) {
+        fullBodyVisible = false;
+        _clearBodyMetrics();
+      }
+    }
+
     if (!fullBodyVisible) {
-      properDistance = false;
-      humanStable = false;
-      distanceState = GameDistanceState.unknown;
-      _stableBodyAnchor = null;
-      _lastBodyAnchor = null;
-      _bodyAnglePerfect = false;
-      _bodyAngleAlmost = false;
-      _bodyMovementAlmost = false;
-      _resetCountdown();
       _updateSkeletonQuality();
       return;
     }
 
-    _evaluateDistance(visibleRequired, pose, width, height);
-    _evaluateBodyAngle(pose, width, height);
-    _evaluateHumanStability(pose, width, height);
+    _evaluateDistance(smoothed);
+    _evaluateBodyAngle(smoothed);
+    _evaluateHumanStability(smoothed);
     _updateSkeletonQuality();
-
-    if (!allRulesValid) _resetCountdown();
   }
 
-  bool _isReliable(PoseLandmark landmark) {
-    return landmark.likelihood >= _minLandmarkLikelihood;
+  
+  void _evaluateDistance(Map<PoseLandmarkType, Offset> points) {
+    final ys = points.values.map((o) => o.dy).toList();
+    final bodyHeightRatio = (ys.reduce(max) - ys.reduce(min)).clamp(0.0, 1.0);
+
+    final ls = points[PoseLandmarkType.leftShoulder];
+    final rs = points[PoseLandmarkType.rightShoulder];
+    if (ls == null || rs == null) return;
+    final shoulderWidthRatio = (ls.dx - rs.dx).abs();
+
+    // Smooth both ratios over time to prevent noisy distance flips.
+    _addToBuffer(_bodyRatioHistory, bodyHeightRatio, _kRatioHistorySize);
+    _addToBuffer(_shoulderRatioHistory, shoulderWidthRatio, _kRatioHistorySize);
+    final smoothBody = _average(_bodyRatioHistory);
+    final smoothShoulder = _average(_shoulderRatioHistory);
+
+    
+    final rawState = _distanceStateFrom(smoothBody, smoothShoulder);
+
+   
+    _addToBuffer(_distanceStateBuffer, rawState, _kDistanceBufferSize);
+    distanceState = _majorityDistanceState(_distanceStateBuffer);
+    properDistance = distanceState == GameDistanceState.perfect;
+
+    final almostCloseBR = monitorMode ? 0.92 : 0.98;
+    final almostCloseSR = monitorMode ? 0.39 : 0.46;
+    _distanceAlmost = smoothBody >= 0.30 &&
+        smoothBody <= almostCloseBR &&
+        smoothShoulder >= 0.075 &&
+        smoothShoulder <= almostCloseSR;
   }
 
-  Pose _bestPoseForCalibration(
-    List<Pose> poses,
-    List<PoseLandmarkType> requiredTypes,
-  ) {
-    return poses.reduce((best, candidate) {
-      final bestScore = _poseVisibilityScore(best, requiredTypes);
-      final candidateScore = _poseVisibilityScore(candidate, requiredTypes);
-      return candidateScore > bestScore ? candidate : best;
-    });
-  }
-
-  int _poseVisibilityScore(Pose pose, List<PoseLandmarkType> requiredTypes) {
-    return requiredTypes
-        .map((type) => pose.landmarks[type])
-        .whereType<PoseLandmark>()
-        .where(_isReliable)
-        .length;
-  }
-
-  void _evaluateDistance(
-    List<PoseLandmark> landmarks,
-    Pose pose,
-    int width,
-    int height,
-  ) {
-    final minY = landmarks.map((landmark) => landmark.y).reduce(min);
-    final maxY = landmarks.map((landmark) => landmark.y).reduce(max);
-
-    final bodyHeightRatio = ((maxY - minY) / height).clamp(0.0, 1.0);
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder]!;
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder]!;
-    final shoulderWidthRatio = (leftShoulder.x - rightShoulder.x).abs() / width;
-
-    if (bodyHeightRatio > 0.86 || shoulderWidthRatio > 0.34) {
-      distanceState = GameDistanceState.tooClose;
-      properDistance = false;
-      _distanceAlmost = bodyHeightRatio <= 0.92 && shoulderWidthRatio <= 0.39;
-    } else if (bodyHeightRatio < 0.36 || shoulderWidthRatio < 0.10) {
-      distanceState = GameDistanceState.tooFar;
-      properDistance = false;
-      _distanceAlmost = bodyHeightRatio >= 0.30 && shoulderWidthRatio >= 0.075;
-    } else {
-      distanceState = GameDistanceState.perfect;
-      properDistance = true;
-      _distanceAlmost = true;
+  GameDistanceState _distanceStateFrom(double body, double shoulder) {
+    final tooCloseBody = monitorMode ? 0.86 : 0.95;
+    final tooCloseShoulder = monitorMode ? 0.34 : 0.42;
+    if (body > tooCloseBody || shoulder > tooCloseShoulder) {
+      return GameDistanceState.tooClose;
+    } else if (body < 0.36 || shoulder < 0.10) {
+      return GameDistanceState.tooFar;
     }
+    return GameDistanceState.perfect;
   }
 
-  void _evaluateBodyAngle(Pose pose, int width, int height) {
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
-    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
+  GameDistanceState _majorityDistanceState(List<GameDistanceState> buf) {
+    if (buf.isEmpty) return GameDistanceState.unknown;
+    final counts = <GameDistanceState, int>{};
+    for (final s in buf) {
+      counts[s] = (counts[s] ?? 0) + 1;
+    }
+    return counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+  }
 
-    if (leftShoulder == null ||
-        rightShoulder == null ||
-        leftHip == null ||
-        rightHip == null) {
+  // ── Body angle evaluation ────────────
+  void _evaluateBodyAngle(Map<PoseLandmarkType, Offset> points) {
+    final ls = points[PoseLandmarkType.leftShoulder];
+    final rs = points[PoseLandmarkType.rightShoulder];
+    final lh = points[PoseLandmarkType.leftHip];
+    final rh = points[PoseLandmarkType.rightHip];
+
+    if (ls == null || rs == null || lh == null || rh == null) {
       _bodyAnglePerfect = false;
       _bodyAngleAlmost = false;
       return;
     }
 
-    final shoulderTilt = (leftShoulder.y - rightShoulder.y).abs() / height;
-    final hipTilt = (leftHip.y - rightHip.y).abs() / height;
-    final shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2 / width;
-    final hipCenterX = (leftHip.x + rightHip.x) / 2 / width;
-    final torsoLean = (shoulderCenterX - hipCenterX).abs();
+    final shoulderTilt = (ls.dy - rs.dy).abs();
+    final hipTilt = (lh.dy - rh.dy).abs();
+    final torsoLean = ((ls.dx + rs.dx) / 2 - (lh.dx + rh.dx) / 2).abs();
 
     _bodyAnglePerfect =
         shoulderTilt <= 0.055 && hipTilt <= 0.055 && torsoLean <= 0.075;
@@ -556,47 +605,73 @@ class GameCalibrationService extends ChangeNotifier {
         shoulderTilt <= 0.11 && hipTilt <= 0.11 && torsoLean <= 0.15;
   }
 
-  void _evaluateHumanStability(Pose pose, int width, int height) {
+
+  void _evaluateHumanStability(Map<PoseLandmarkType, Offset> points) {
     if (!fullBodyVisible) {
       humanStable = false;
       _bodyMovementAlmost = false;
+      _smoothedBodyAnchor = null;
       _stableBodyAnchor = null;
-      _lastBodyAnchor = null;
       return;
     }
 
-    final anchor = _bodyAnchor(pose, width, height);
-    if (anchor == null) {
+    final rawAnchor = _computeBodyAnchor(points);
+    if (rawAnchor == null) {
       humanStable = false;
       _bodyMovementAlmost = false;
-      _stableBodyAnchor = null;
-      _lastBodyAnchor = null;
       return;
     }
 
-    final frameMovement =
-        _lastBodyAnchor == null ? 0.0 : (anchor - _lastBodyAnchor!).distance;
-    _lastBodyAnchor = anchor;
+  
+    if (_smoothedBodyAnchor == null) {
+      _smoothedBodyAnchor = rawAnchor;
+    } else {
+      const alpha = 0.30;
+      _smoothedBodyAnchor = Offset(
+        _smoothedBodyAnchor!.dx + (rawAnchor.dx - _smoothedBodyAnchor!.dx) * alpha,
+        _smoothedBodyAnchor!.dy + (rawAnchor.dy - _smoothedBodyAnchor!.dy) * alpha,
+      );
+    }
+
+    final anchor = _smoothedBodyAnchor!;
     _stableBodyAnchor ??= anchor;
 
     final drift = (anchor - _stableBodyAnchor!).distance;
-    final movementStable = frameMovement <= 0.035 && drift <= 0.055;
+    final movementStable = drift <= 0.038;
     humanStable = properDistance && phoneStable && movementStable;
-    _bodyMovementAlmost = frameMovement <= 0.065 && drift <= 0.095;
+    _bodyMovementAlmost = drift <= 0.070;
 
     if (!humanStable) _stableBodyAnchor = anchor;
   }
 
-  void _updateSkeletonQuality() {
-    if (allRulesValid && _bodyAnglePerfect) {
-      skeletonQuality = GameSkeletonQuality.perfect;
-      skeletonStatus = 'Perfect Position';
-      return;
-    }
+  Offset? _computeBodyAnchor(Map<PoseLandmarkType, Offset> points) {
+    const anchorTypes = [
+      PoseLandmarkType.nose,
+      PoseLandmarkType.leftShoulder,
+      PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.leftHip,
+      PoseLandmarkType.rightHip,
+    ];
+    final relevant = anchorTypes
+        .map((t) => points[t])
+        .whereType<Offset>()
+        .toList(growable: false);
+    if (relevant.length != anchorTypes.length) return null;
+    return relevant.reduce((a, b) => a + b) / relevant.length.toDouble();
+  }
 
-    final phoneAlmost = phoneStable || _phoneMotionScore < 1.35;
-    final almostReady =
-        fullBodyVisible &&
+void _updateSkeletonQuality() {
+  if (fullBodyVisible) {
+    skeletonQuality = GameSkeletonQuality.perfect;
+    skeletonStatus = 'Body Detected';
+    return;
+  }
+
+  skeletonQuality = GameSkeletonQuality.adjust;
+  skeletonStatus = 'Adjust Your Position';
+
+    final phoneAlmost = phoneStable || _phoneMotionScore < 1.0;
+    final almostReady = fullBodyVisible &&
         _distanceAlmost &&
         phoneAlmost &&
         _bodyMovementAlmost &&
@@ -611,51 +686,26 @@ class GameCalibrationService extends ChangeNotifier {
     }
   }
 
-  Offset? _bodyAnchor(Pose pose, int width, int height) {
-    final types = const [
-      PoseLandmarkType.nose,
-      PoseLandmarkType.leftShoulder,
-      PoseLandmarkType.rightShoulder,
-      PoseLandmarkType.leftHip,
-      PoseLandmarkType.rightHip,
-    ];
-
-    final landmarks = types
-        .map((type) => pose.landmarks[type])
-        .whereType<PoseLandmark>()
-        .where(_isReliable)
-        .toList(growable: false);
-
-    if (landmarks.length != types.length) return null;
-
-    final x = landmarks
-            .map((landmark) => landmark.x / width)
-            .reduce((a, b) => a + b) /
-        landmarks.length;
-    final y = landmarks
-            .map((landmark) => landmark.y / height)
-            .reduce((a, b) => a + b) /
-        landmarks.length;
-
-    return Offset(x, y);
-  }
 
   void _updateMessage() {
     if (activeIssue == GameSafetyIssue.cameraUnavailable) return;
 
     if (!fullBodyVisible) {
       activeIssue = GameSafetyIssue.fullBodyLost;
-      message =
-          monitorMode ? 'Full body not detected' : 'Please ensure your full body is visible.';
+      message = monitorMode
+          ? 'Full body not detected'
+          : 'Please ensure your full body is visible.';
     } else if (!properDistance) {
       if (distanceState == GameDistanceState.tooFar) {
         activeIssue = GameSafetyIssue.tooFar;
-        message = monitorMode ? 'Please move slightly closer' : 'Please come slightly closer.';
+        message = monitorMode
+            ? 'Please move slightly closer'
+            : 'Please come slightly closer.';
       } else {
         activeIssue = GameSafetyIssue.tooClose;
         message = monitorMode
             ? 'Please move slightly back'
-            : 'Please move at least 3 feet away from the phone.';
+            : 'Please keep about 95 cm from the phone.';
       }
     } else if (!phoneStable) {
       activeIssue = GameSafetyIssue.phoneMoved;
@@ -673,6 +723,30 @@ class GameCalibrationService extends ChangeNotifier {
     }
   }
 
+
+  void _clearBodyState() {
+    fullBodyVisible = false;
+    properDistance = false;
+    humanStable = false;
+    distanceState = GameDistanceState.unknown;
+    _clearBodyMetrics();
+    _smoother.reset();
+  }
+
+  void _clearBodyMetrics() {
+    _bodyAnglePerfect = false;
+    _bodyAngleAlmost = false;
+    _bodyMovementAlmost = false;
+    _distanceAlmost = false;
+    _smoothedBodyAnchor = null;
+    _stableBodyAnchor = null;
+    _consecutiveFullBodyFrames = 0;
+    _consecutiveNoBodyFrames = 0;
+    _distanceStateBuffer.clear();
+    _bodyRatioHistory.clear();
+    _shoulderRatioHistory.clear();
+  }
+
   void _resetCountdown() {
     _validSince = null;
     countdownRemaining = requiredStableSeconds.toDouble();
@@ -681,9 +755,153 @@ class GameCalibrationService extends ChangeNotifier {
 
   void _scheduleNotify() {
     if (_isDisposed || (_notifyTimer?.isActive ?? false)) return;
-    _notifyTimer = Timer(const Duration(milliseconds: 100), () {
+    _notifyTimer = Timer(const Duration(milliseconds: 50), () {
       if (!_isDisposed) notifyListeners();
     });
+  }
+
+  static void _addToBuffer<T>(List<T> buf, T value, int maxSize) {
+    buf.add(value);
+    if (buf.length > maxSize) buf.removeAt(0);
+  }
+
+  static double _average(List<double> list) {
+    if (list.isEmpty) return 0.0;
+    return list.reduce((a, b) => a + b) / list.length;
+  }
+
+  bool _isReliable(PoseLandmark lm) => lm.likelihood >= _minLandmarkLikelihood;
+
+  Pose _bestPoseForCalibration(
+    List<Pose> poses,
+    List<PoseLandmarkType> required,
+  ) {
+    return poses.reduce((best, candidate) {
+      return _poseScore(candidate, required) > _poseScore(best, required)
+          ? candidate
+          : best;
+    });
+  }
+
+  int _poseScore(Pose pose, List<PoseLandmarkType> required) {
+    return required
+        .map((t) => pose.landmarks[t])
+        .whereType<PoseLandmark>()
+        .where(_isReliable)
+        .length;
+  }
+
+
+  InputImage? _inputImageFromCameraImage(
+    CameraImage image,
+    CameraDescription camera,
+  ) {
+    if (image.planes.isEmpty) return null;
+
+    final rotation =
+        InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+    if (rotation == null) return null;
+
+    if (Platform.isIOS) {
+      return InputImage.fromBytes(
+        bytes: image.planes.first.bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: InputImageFormat.bgra8888,
+          bytesPerRow: image.planes.first.bytesPerRow,
+        ),
+      );
+    }
+
+    final bytes = _buildCleanNV21(image);
+    if (bytes == null) return null;
+
+    return InputImage.fromBytes(
+      bytes: bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: InputImageFormat.nv21,
+        bytesPerRow: image.width,
+      ),
+    );
+  }
+
+  Uint8List? _buildCleanNV21(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final planes = image.planes;
+    final expectedSize = width * height * 3 ~/ 2;
+    final out = Uint8List(expectedSize);
+
+    final yPlane = planes[0];
+    final yBytes = yPlane.bytes;
+    final yBytesPerRow = yPlane.bytesPerRow;
+    final ySize = width * height;
+
+    if (yBytesPerRow == width && yBytes.length >= ySize) {
+      out.setRange(0, ySize, yBytes);
+    } else {
+      for (int row = 0; row < height; row++) {
+        final src = row * yBytesPerRow;
+        final dst = row * width;
+        if (src + width > yBytes.length) return null;
+        out.setRange(dst, dst + width, yBytes, src);
+      }
+    }
+
+    final uvStart = ySize;
+    final uvRows = height ~/ 2;
+
+    if (planes.length == 1) {
+      if (yBytes.length < expectedSize) return null;
+      out.setRange(ySize, expectedSize, yBytes, ySize);
+      return out;
+    }
+
+    if (planes.length == 2) {
+      final uvPlane = planes[1];
+      final uvBytes = uvPlane.bytes;
+      final uvBytesPerRow = uvPlane.bytesPerRow;
+
+      if (uvBytesPerRow == width && uvBytes.length >= width * uvRows) {
+        out.setRange(uvStart, expectedSize, uvBytes);
+      } else {
+        for (int row = 0; row < uvRows; row++) {
+          final src = row * uvBytesPerRow;
+          final dst = uvStart + row * width;
+          if (src + width > uvBytes.length) return null;
+          out.setRange(dst, dst + width, uvBytes, src);
+        }
+      }
+      return out;
+    }
+
+    if (planes.length < 3) return null;
+
+    final uPlane = planes[1];
+    final vPlane = planes[2];
+    final uBytes = uPlane.bytes;
+    final vBytes = vPlane.bytes;
+    final uBytesPerRow = uPlane.bytesPerRow;
+    final vBytesPerRow = vPlane.bytesPerRow;
+    final uBytesPerPixel = uPlane.bytesPerPixel ?? 1;
+    final vBytesPerPixel = vPlane.bytesPerPixel ?? 1;
+    final uvCols = width ~/ 2;
+    for (int row = 0; row < uvRows; row++) {
+      for (int col = 0; col < uvCols; col++) {
+        final uIdx = row * uBytesPerRow + col * uBytesPerPixel;
+        final vIdx = row * vBytesPerRow + col * vBytesPerPixel;
+        final dst = uvStart + row * width + col * 2;
+        if (dst + 1 >= expectedSize) return null;
+        if (uIdx >= uBytes.length || vIdx >= vBytes.length) return null;
+        out[dst] = vBytes[vIdx];
+        out[dst + 1] = uBytes[uIdx];
+      }
+    }
+
+    return out;
   }
 
   Future<void> shutdown() {

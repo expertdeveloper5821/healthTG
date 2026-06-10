@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- REQUIRED PERMISSIONS -->
     <uses-permission android:name="android.permission.CAMERA"/>
@@ -15,6 +16,21 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
     <uses-permission android:name="android.permission.BODY_SENSORS"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- SCREEN CAST / SMART TV PERMISSIONS -->
+    <!-- Wi-Fi state checks (wired + wireless display detection) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <!-- Required for Wi-Fi P2P / Miracast scanning on Android 10 (API 29) and below -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Android 13+ (API 33): replaces location requirement for Wi-Fi Direct scanning -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33"/>
+    <!-- Network state changes during cast -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
 
     <!-- HEALTH CONNECT PERMISSIONS -->
     <uses-permission android:name="android.permission.health.READ_STEPS"/>
@@ -52,7 +68,8 @@
     <application
         android:label="Health TG"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".MainActivity"

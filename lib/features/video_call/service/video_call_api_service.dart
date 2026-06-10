@@ -16,7 +16,7 @@ class VideoCallApiService {
     'Cookie': sessionCookie,
   };
 
-  /// GET /ice_servers — returns Twilio STUN/TURN credentials
+ 
   Future<Map<String, dynamic>> fetchIceServers(String token) async {
     debugPrint('[VideoAPI] fetchIceServers');
     final res = await _client.get(
@@ -27,7 +27,7 @@ class VideoCallApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  /// GET /peerjs/getConnectedPeers — list of currently-online peer IDs
+ 
   Future<List<String>> getConnectedPeers(String token) async {
     debugPrint('[VideoAPI] getConnectedPeers');
     final res = await _client.get(
@@ -52,7 +52,7 @@ class VideoCallApiService {
     return [];
   }
 
-  /// POST /peerjs/disconnectConnectedPeers — force-disconnect a stale peer
+
   Future<void> disconnectPeer(String token, String peerId) async {
     debugPrint('[VideoAPI] disconnectPeer: $peerId');
     await _client.post(
@@ -62,7 +62,7 @@ class VideoCallApiService {
     );
   }
 
-  /// GET /users/isAuthenticated — check session is still valid
+
   Future<bool> isAuthenticated(String token) async {
     try {
       final res = await _client.get(
@@ -77,7 +77,7 @@ class VideoCallApiService {
     }
   }
 
-  /// POST /users/authenticate_user — same check used by the PeerJS signaling server.
+
   Future<bool> authenticatePeerSession({
     required String token,
     required String peerId,
@@ -94,7 +94,6 @@ class VideoCallApiService {
     return body is Map && body['isUserAuthenticate'] == true;
   }
 
-  /// POST /therapist/users/getAll — all patients assigned to this therapist.
   Future<List<Map<String, dynamic>>> getAllTherapistPatients(
     String token,
   ) async {
@@ -113,7 +112,7 @@ class VideoCallApiService {
     return [];
   }
 
-  /// POST /therapist/users/openPeers — status for patients assigned to this therapist.
+
   Future<List<Map<String, dynamic>>> getOpenPeers(String token) async {
     debugPrint('[VideoAPI] getOpenPeers');
     final res = await _client.post(
@@ -130,7 +129,6 @@ class VideoCallApiService {
     return [];
   }
 
-  /// POST /therapist/sessions/therapistStartTime — log ringing/connected event
   Future<void> recordSessionEvent(
     String token, {
     required int patientId,
@@ -144,8 +142,6 @@ class VideoCallApiService {
     );
   }
 
-  /// POST /patient/availabilityStatus — same patient availability flag used by
-  /// the Angular therapist list/openPeers flow.
   Future<void> updatePatientAvailabilityStatus(
     String token, {
     required int patientId,

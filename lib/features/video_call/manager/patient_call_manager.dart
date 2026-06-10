@@ -55,10 +55,6 @@ class PatientCallManager {
       _availabilityTimer = null;
       onSignalingClosed?.call();
     };
-
-    // Mirrors the Angular patient flow: if this peer id is still registered
-    // from a previous browser/app session, ask the signaling server to kill it
-    // and then register again with the same user peer id.
     signaling.onIdTaken = () {
       debugPrint(
         '[Patient] ID-TAKEN — disconnecting stale peer, retrying in 2s',
@@ -80,9 +76,9 @@ class PatientCallManager {
         _mediaConnId = connId;
         callService.mediaConnId = connId;
 
-        // Show incoming call to patient via UI callback
+     
         onIncomingCall?.call(src, () async {
-          // Accept: build local stream then answer
+        
           await callService.getLocalStream();
           final answer = await callService.createMediaAnswer(offer);
           signaling.sendAnswer(src, answer, connId);
@@ -180,7 +176,7 @@ class PatientCallManager {
     }
   }
 
-  /// Send progress update to therapist
+ 
   void sendProgressUpdate(double percentage) {
     callService.sendMessage({
       'type': 'progress_bar',
@@ -188,17 +184,16 @@ class PatientCallManager {
     });
   }
 
-  /// Send full game score summary to therapist
+  
   void sendScoreData(Map<String, dynamic> scoreData) {
     callService.sendMessage({'type': 'patient_score_data', 'data': scoreData});
   }
 
-  /// Send skeleton/pose buffer to therapist
   void sendSkeletonBuffer(Map<String, dynamic> skeletonData) {
     callService.sendMessage({'type': 'skeleton_buffer', 'data': skeletonData});
   }
 
-  /// Send game state to therapist
+ 
   void sendGameState(Map<String, dynamic> state) {
     callService.sendMessage({'type': 'game_state', 'data': state});
   }
